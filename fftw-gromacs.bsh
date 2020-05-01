@@ -1,0 +1,392 @@
+#!/bin/bash
+# A script for compiling windows gromacs for 4.6.X, 5.X, 2016, 2018, 2019 and 2020 version by FFTW, including cpu and gpu version, which depends on whether you have installed CUDA toolkit and you want. 
+# Here I have tested gromacs version >= 4.6.X, more details could be found in the below website: https://liuyujie714.com/15.html -DGMX_BUILD_MDRUN_ONLY=ON
+
+############################################################################
+#                     Author : Written by Yujie Liu                        #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.6                                #
+#                           Date : 2019.05.11                              #
+#                       Update Date : 2020.04.16                           #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Description() {
+echo '
+    A script for compiling windows gromacs for 4.6.X, 5.X, 2016, 2018, 2019 and 2020 version by FFTW, 
+    including cpu and gpu version, which depends on whether you have installed CUDA toolkit and you want. 
+    
+  Note:
+    You must install some needed softwares for compiling windows gromacs:
+    1. CMake (need add the bin folder included cmake.exe to windows path(Do not use 3.14 or above))
+    2. Any shell software, for instance, cmder, cygwin, etc. for running grep, sed, etc.
+    3. CUDA  --Optional(cpu version will be compiled if you did not install CUDA)
+    4. Visual Studio Community 2019
+    5. Intel C++ Compiler 2020
+    6. GROMACS source code could be 4.6.x, 5.x, 2016.x, 2018.x, 2019.x or 2020.x(from official website)
+    7. FFTW tar.gz source code
+    
+    You must put tar.gz file of gromacs and fftw and this script into same folder'
+}
+
+Usage() {
+    echo "
+    Usage: $0 Options:
+        -h      Show help information
+        -t      Value, '0' is cpu, '1' is gpu (default: 0)
+    "
+}
+
+YesGpu=0
+
+[[ $# -lt 1 ]] && { Description; Usage; exit 1; }
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h ]] && { Description; Usage; exit 2; }
+    [[ $arg =~ -t ]] && { YesGpu=${options[$j]}; }
+done
+
+# Check source code of fftw and gromacs
+if [[ ! -e `ls fftw*.tar.gz` ]]  > /dev/nul 2>&1; then
+    echo -e "Error:\n\tfftw source code not found!"
+    exit
+fi
+
+if [[ ! -e `ls gromacs*.tar.gz` ]]  > /dev/nul 2>&1; then
+    echo -e "Error:\n\tgromacs source code not found!"
+    exit
+fi
+
+## using Intel C++ Compiler for more high efficiency
+#==================================FFTW=================================#
+## compile fftw
+echo "Compiling FFTW..."
+tar -xzf fftw*.tar.gz
+cd fftw-*/
+cmake . -DCMAKE_INSTALL_PREFIX=./ \
+        -DENABLE_SSE2=ON \
+        -DENABLE_AVX=ON \
+        -DENABLE_AVX2=ON \
+        -DENABLE_FLOAT=ON \
+        -DBUILD_SHARED_LIBS=ON \
+        -G "Visual Studio 15 2017 Win64" \
+        -T "Intel C++ Compiler 19.1" > /dev/null 2>&1
+sleep 1 
+cmake --build . --target INSTALL --config Release > /dev/null 2>&1
+sleep 10 
+cd ..
+
+#find fftw name
+fft=fft*.tar.gz
+FFT_HOME=`echo | pwd`/$(basename $fft .tar.gz)
+package=gromacs*.tar.gz
+
+#========================GROMACS 2020===================================#
+# for gromacs 2020.X
+if echo $(basename $package .tar.gz)|grep -i 2020 > /dev/null 2>&1; then
+    # obtain version infomation
+    gmx_version=`echo $(basename $package .tar.gz)|awk 'BEGIN{FS="-"} {print $2}'`
+	# unpack source code of gromacs
+	tar -xzf gromacs-2020*.tar.gz
+	cd  gromacs-2020*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	## set correct -std for nvcc flags
+	sed -i 's/list(APPEND GMX_CUDA_NVCC_FLAGS "${GMX_CXX_STANDARD_COMPILE_OPTION}")/list(APPEND GMX_CUDA_NVCC_FLAGS "-std c++14")/' ${install_file}/../cmake/gmxManageNvccConfig.cmake
+	
+	# cmake source code
+	if [[ `nvcc --version | grep -i nvidia` && ${YesGpu} == 1 ]] > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "You choose to compile GPU version of gromacs2020"
+		echo "GPU version of gromacs2020 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  \
+		         -DGMX_FFT_LIBRARY=fftw3  \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=ON \
+		         -DGMX_QMMM_PROGRAM=gaussian > /dev/null 2>&1
+		         #for 2020 and 2020.1 is needed, otherwise cmake does not pass because of version check failure 
+		         #-DGMX_VERSION_STRING_OF_FORK="${gmx_version}" > /dev/null 2>&1
+	else 
+		echo ""
+		echo ""
+		echo "You choose to compile CPU version of gromacs2020 or CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs2020 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  \
+		         -DGMX_FFT_LIBRARY=fftw3 \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_QMMM_PROGRAM=gaussian \
+		         -DGMX_GPU=OFF  > /dev/null 2>&1
+		         #for 2020 and 2020.1 is needed, otherwise cmake does not pass because of version check failure 
+		         #-DGMX_VERSION_STRING_OF_FORK="${gmx_version}"
+	fi
+
+#========================GROMACS 2019===================================#
+# for gromacs 2019.X
+elif echo $(basename $package .tar.gz)|grep -i 2019 > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xzf gromacs-2019*.tar.gz
+	cd  gromacs-2019*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	#### here, I changed pme-internal.h file because this vs2017 version(RTW 15) would cause an error, but if you update vs2017, it seems that no error occurred. ####
+	#sed -i 's/enum PmeRunMode runMode/enum class PmeRunMode runMode/' ${install_file}/../src/gromacs/ewald/pme-internal.h
+	
+	# cmake source code
+	if [[ `nvcc --version | grep -i nvidia` && ${YesGpu} == 1 ]] > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "You choose to compile GPU version of gromacs2019"
+		echo "GPU version of gromacs2019 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  \
+		         -DGMX_FFT_LIBRARY=fftw3  \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=ON \
+		         -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets \
+		         -DGMX_QMMM_PROGRAM=gaussian > /dev/null 2>&1
+	else 
+		echo ""
+		echo ""
+		echo "You choose to compile CPU version of gromacs2019 or CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs2019 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  \
+		         -DGMX_FFT_LIBRARY=fftw3 \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=OFF \
+		         -DGMX_QMMM_PROGRAM=gaussian > /dev/null 2>&1
+	fi
+
+#========================GROMACS 2018===================================#
+# for gromacs 2018.X
+elif echo $(basename $package .tar.gz)|grep -i 2018 > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xzf gromacs-2018*.tar.gz
+	cd  gromacs-2018*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	
+	# cmake source code
+	if [[ `nvcc --version | grep -i nvidia` && ${YesGpu} == 1 ]] > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "You choose to compile GPU version of gromacs2018"
+		echo "GPU version of gromacs2018 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		### change M_PI to CUDART_PI_F and add head file (#include <math_constants.h>) into src/gromacs/ewald/pme-solve.cu, and add __device__ into src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh for recognizing via CUDA###
+		sed -i 's/M_PI/CUDART_PI_F/' ${install_file}/../src/gromacs/ewald/pme-solve.cu
+		sed -i '/^#include "config.h"$/a\#include <math_constants.h>' ${install_file}/../src/gromacs/ewald/pme-solve.cu
+		sed -i 's/c_oneSixth    = 0.16666667f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		sed -i 's/c_oneTwelveth = 0.08333333f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  \
+		         -DGMX_FFT_LIBRARY=fftw3 \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=ON \
+		         -DGMX_NVCC_WORKS=ON \
+		         -DGMX_QMMM_PROGRAM=gaussian \
+		         -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets > /dev/null 2>&1
+	else 
+		echo ""
+		echo ""
+		echo "You choose to compile CPU version of gromacs2018 or CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs2018 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  \
+		         -DGMX_FFT_LIBRARY=fftw3 \
+		         -DGMX_QMMM_PROGRAM=gaussian \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=OFF > /dev/null 2>&1
+	fi
+
+#========================GROMACS 2016===================================#
+# for gromacs 2016.X
+elif echo $(basename $package .tar.gz)|grep -i 2016 > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xzf gromacs-2016*.tar.gz
+	cd  gromacs-2016*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	# cmake source code
+	if [[ `nvcc --version | grep -i nvidia` && ${YesGpu} == 1 ]] > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "You choose to compile GPU version of gromacs2016"
+		echo "GPU version of gromacs2016 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		### add __device__ into src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh for recognizing via CUDA###
+		sed -i 's/c_oneSixth    = 0.16666667f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		sed -i 's/c_oneTwelveth = 0.08333333f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		cmake .. -G "Visual Studio 15 2017 Win64"  \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  \
+		         -DGMX_FFT_LIBRARY=fftw3  \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=ON \
+		         -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets > /dev/null 2>&1
+	else 
+		echo ""
+		echo ""
+		echo "You choose to compile CPU version of gromacs2016 or CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs2016 will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  \
+		         -DGMX_FFT_LIBRARY=fftw3 \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=OFF > /dev/null 2>&1
+	fi
+
+#========================GROMACS 5.x====================================#
+# for gromacs 5.X
+elif echo $(basename $package .tar.gz)|grep -i 5. > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xzf gromacs-5*.tar.gz
+	cd  gromacs-5*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	# cmake source code
+	if [[ `nvcc --version | grep -i nvidia` && ${YesGpu} == 1 ]] > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "You choose to compile GPU version of gromacs5.x"
+		echo "GPU version of gromacs 5.X will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		# remove sm_20 section in cmake/gmxManageNvccConfig.cmake file for pass cmake.
+		sed -i '/-gencode;arch=compute_20,code=sm_20/d' ${install_file}/../cmake/gmxManageNvccConfig.cmake
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  \
+		         -DGMX_FFT_LIBRARY=fftw3  \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=ON \
+		         -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets > /dev/null 2>&1
+	else 
+		echo ""
+		echo ""
+		echo "You choose to compile CPU version of gromacs5.x or CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs 5.X will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  \
+		         -DGMX_FFT_LIBRARY=fftw3 \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=OFF > /dev/null 2>&1
+	fi
+
+#========================GROMACS 4.6.x==================================#
+# for gromacs 4.6.x
+elif echo $(basename $package .tar.gz)|grep -i 4.6 > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xzf gromacs-4.6*.tar.gz
+	cd  gromacs-4.6*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	# cmake source code
+	if [[ `nvcc --version | grep -i nvidia` && ${YesGpu} == 1 ]] > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "You choose to compile GPU version of gromacs4.6.x"
+		echo "GPU version of gromacs 4.6.X will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		# remove sm_20 section in cmake/gmxManageNvccConfig.cmake file for pass cmake.
+		sed -i 's/-gencode;arch=compute_20,code=sm_20;-gencode;arch=compute_20,code=sm_21;//g' ${install_file}/../cmake/gmxManageNvccConfig.cmake
+		sed -i 's/-gencode;arch=compute_20,code=compute_20//g' ${install_file}/../cmake/gmxManageNvccConfig.cmake
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  \
+		         -DGMX_FFT_LIBRARY=fftw3  \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=ON \
+		         -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets > /dev/null 2>&1
+	else 
+		echo ""
+		echo ""
+		echo "You choose to compile CPU version of gromacs4.6.x or CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs 4.6.X will be installed on your windows"
+		echo "Compiling GROMACS..."
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" \
+		         -T "Intel C++ Compiler 19.1" \
+		         -DCMAKE_BUILD_TYPE=Release  \
+		         -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  \
+		         -DGMX_FFT_LIBRARY=fftw3 \
+		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
+		         -DGMX_GPU=OFF > /dev/null 2>&1
+	fi
+
+else 
+	echo ""
+	echo ""
+	echo "You haven't source code of gromacs 4.6.X, 5.X, 2016, 2018, 2019 or 2020, the program will not work！"
+	exit 1
+fi
+sleep 5
+
+#===========================INSTALL GROMACS=============================#
+# the final install
+cmake --build . --target INSTALL --config Release > /dev/null 2>&1
+sleep 5
+
+# copy fftw3f.dll to win_gromacs folder
+cp $FFT_HOME/bin/fftw3f.dll ${install_file}/../../win_gromacs_*/bin
+
+# clear rubbish file
+cd ../../
+# rm -rf gromacs-201*/
+# rm -rf fftw*/
+echo ""
+echo ""
+echo "The windows gromacs has been compiled!!!"
+
