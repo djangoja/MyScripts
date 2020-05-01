@@ -97,6 +97,17 @@ if echo $(basename $package .tar.gz)|grep -i 2020 > /dev/null 2>&1; then
 	## set correct -std for nvcc flags
 	sed -i 's/list(APPEND GMX_CUDA_NVCC_FLAGS "${GMX_CXX_STANDARD_COMPILE_OPTION}")/list(APPEND GMX_CUDA_NVCC_FLAGS "-std c++14")/' ${install_file}/../cmake/gmxManageNvccConfig.cmake
 	
+	## fix a bug using Intel C++ compiler, we should change constexpr into const(In fact, gmx2020 and 2020.1 <const> is correct, but starting from 2020.2, default type is constexpr, this caused error happened)
+	sed -i 's/define CONSTEXPR_EXCL_OLD_CLANG constexpr/define CONSTEXPR_EXCL_OLD_CLANG const/' ${install_file}/../src/gromacs/listed_forces/bonded.cpp
+	
+	## Here, we should change some source code in [gmx_do_dssp.cpp], because this bug still exist 2020.2 version, this should depend on you!
+	# change line 195 into : mat->matrix.resize(mat->matrix.extent(1), nr);
+	# change line 196 into : mat->nx          = mat->axis_x.size();
+	
+	## if you need use dssp in gmx2020.2, please delete # 
+	#sed -i 's/mat->matrix.resize(mat->matrix.extent(0), nr)/mat->matrix.resize(mat->matrix.extent(1), nr)/' ${install_file}/../src/gromacs/gmxana/gmx_do_dssp.cpp
+	#sed -i 's/mat->nx          = mat->matrix.extent(0)/mat->nx          = mat->axis_x.size()/' ${install_file}/../src/gromacs/gmxana/gmx_do_dssp.cpp
+	
 	# cmake source code
 	if [[ `nvcc --version | grep -i nvidia` && ${YesGpu} == 1 ]] > /dev/null 2>&1; then
 		echo ""
@@ -112,9 +123,9 @@ if echo $(basename $package .tar.gz)|grep -i 2020 > /dev/null 2>&1; then
 		         -DGMX_FFT_LIBRARY=fftw3  \
 		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
 		         -DGMX_GPU=ON \
-		         -DGMX_QMMM_PROGRAM=gaussian > /dev/null 2>&1
-		         #for 2020 and 2020.1 is needed, otherwise cmake does not pass because of version check failure 
-		         #-DGMX_VERSION_STRING_OF_FORK="${gmx_version}" > /dev/null 2>&1
+		         -DGMX_QMMM_PROGRAM=gaussian \
+		         -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets \
+		         -DGMX_VERSION_STRING_OF_FORK="${gmx_version}"  > /dev/null 2>&1
 	else 
 		echo ""
 		echo ""
@@ -129,9 +140,8 @@ if echo $(basename $package .tar.gz)|grep -i 2020 > /dev/null 2>&1; then
 		         -DGMX_FFT_LIBRARY=fftw3 \
 		         -DCMAKE_PREFIX_PATH=$FFT_HOME \
 		         -DGMX_QMMM_PROGRAM=gaussian \
-		         -DGMX_GPU=OFF  > /dev/null 2>&1
-		         #for 2020 and 2020.1 is needed, otherwise cmake does not pass because of version check failure 
-		         #-DGMX_VERSION_STRING_OF_FORK="${gmx_version}"
+		         -DGMX_GPU=OFF  \
+		         -DGMX_VERSION_STRING_OF_FORK="${gmx_version}" > /dev/null 2>&1
 	fi
 
 #========================GROMACS 2019===================================#
