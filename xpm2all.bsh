@@ -1,0 +1,140 @@
+function xpm2xyz {
+	awk ' BEGIN{ny=0; ix=1; iy=1}
+	/"/ {
+		gsub(/[",]/, "")
+		n=split($0, arr)
+		if(n==1)      { zv[ny++]=$0 }
+		else if(n==4) { ncode=$NF }
+		else if(n>4)  { v[$1]=$5  }
+	}
+
+	/\/\* x-axis/ && ix { x0=$3; dx=$4-x0; ix=0 }
+	/\/\* y-axis/ && iy { y0=$3; dy=$4-y0; iy=0 }
+
+	END {
+		nx=length(zv[1])/ncode
+		print "#    Nx="nx"    Ny="ny"    X0="x0"    dX="dx"    Y0="y0"    dY="dy
+
+		for(j=0; j<ny; j++) {
+			y = y0+j*dy
+			for(i=0; i<nx; i++) {
+				x = x0+i*dx
+				txt=substr(zv[ny-1-j], i*ncode+1, ncode)
+				print x, y, v[txt]
+			}
+		}
+	} ' $file.xpm > $file~xyz.dat
+}
+
+function xpm2rgb {
+	Line=$(grep "GROMACS" $file.xpm |wc -l)
+	[[ $Line == 0 ]] && { cp $file.xpm $file~iv.xpm; return; }
+
+	awk -v cm=$cm ' /static/ {
+		print
+		getline; print; n=$3
+		for(i=1; i<=n; i++) {
+			getline; sub(/ \/\* .* \*\//, "")
+			if(cm) $3=RGB(cm, i, 1, n, (1+n)/2)
+			print
+		}
+	}
+	/y-axis/,0 {sub(/^\/\* .* \*\//, ""); if(length($0)) print}
+
+	function abs(x)    { return x>=0 ? x : -x  }
+	function min(x, y) { return x<y ? x : y }
+	function max(x, y) { return x>y ? x : y }
+	function nint(x)   { return x>=0 ? int(x+0.5) : int(x-0.5) }
+	function Cubic(y0, a1, a2, a3, x) {return y0+a1*x+a2*x*x+a3*x*x*x}
+	function RGB(cm, V, Vmin, Vmax, Vcnt) {
+		x=(V-Vmin)/(Vmax-Vmin)
+		if(V<Vcnt) x=0.5*(V-Vmin)/(Vcnt-Vmin)
+		else       x=0.5*(V-Vcnt)/(Vmax-Vcnt)+0.5
+
+		PI=4*atan2(1,1)
+		if(cm==1) { # Rainbow http://stackoverflow.com/questions/7706339
+			r=1; g=1; b=1
+			if      (x<0.25) { r = 0;     g = 4*x   }
+			else if (x<0.50) { r = 0;     b = 2-4*x }
+			else if (x<0.75) { r = 4*x-2; b = 0 }
+			else             { g = 4-4*x; b = 0 }
+		} else if(cm==2) { # Rainbow gnuplot_33/13/10
+			r=abs(2*x-0.5); g=sin(PI*x); b=cos(.5*PI*x)
+		} else if(cm==3) { # Rainbow gnuplot_26/13/10
+			r=(3*x-1)/2; g=sin(PI*x); b=cos(.5*PI*x)
+		} else if(cm==4) { # Rainbow gnuplot_22/13/-31
+			r=3*x-1; g=sin(PI*x); b=0.84-2*x
+		} else if(cm==5) { # Rainbow rainbow_bgyr_35-85_c72_n256
+			if     (x<.137254902) r=0
+			else if(x<.309803922) r=Cubic( -1.782709, 22.937070,  -86.635448, 109.222171, x)
+			else if(x<.623529412) r=Cubic( -0.765706,  3.908358,   -2.385836,   0.911563, x)
+			else if(x<.741176471) r=Cubic(-18.069920, 81.220268, -115.432390,  54.731649, x)
+			else if(x<.917647059) r=1
+			else                  r=Cubic(  0.688335,  0.804310,   -0.553402,   0.051166, x)
+
+			if (x<.611764706) g=Cubic(  0.221600,  2.096260,   -2.989336,   1.865388, x)
+			else              g=Cubic(  2.304104, -4.665514,    5.405245,  -2.842239, x)
+
+			if     (x<.345098039) b=Cubic(  0.964755, -3.046139,    3.252455,  -6.730486, x)
+			else if(x<.623529412) b=Cubic(  0.034808, -0.485577,    2.123163,  -1.570901, x)
+			else if(x<.964705882) b=Cubic( -0.692383,  4.166389,   -6.037159,   2.550446, x)
+			else                  b=0
+		} else if(cm==6) { # viridis python
+			if(x<.55) r=Cubic(  0.270292,   0.333180,   -2.630394,  2.791978, x)
+			else      r=Cubic(  3.693069, -15.201373,   19.879325, -7.377033, x)
+
+			if(x<.55) g=Cubic(  0.003646,   1.508667,   -1.151450,  0.759940, x)
+			else      g=Cubic(  0.042276,   0.851820,    0.720388, -0.711664, x)
+
+			if     (x<.55) b=Cubic(  0.329096,   1.646430,   -3.791185,  2.755424, x)
+			else if(x<.90) b=Cubic( -0.218020,   3.162757,   -3.558470,  0.553676, x)
+			else           b=Cubic(-19.388025,  82.308615, -108.295603, 45.520845, x)
+		} else if(cm==7) { # parula matlab
+			if     (x<.15) r=Cubic(  0.198797,   1.970497,  -41.589822,  123.449482, x)
+			else if(x<.39) r=Cubic( -0.907359,  10.573222,  -36.564186,   39.903611, x)
+			else if(x<.86) r=Cubic(  1.054605,  -8.205269,   17.972106,   -9.889006, x)
+			else           r=Cubic(-33.422658, 116.236961, -130.247319,   48.409917, x)
+
+			if(x<.8)  g=Cubic(  0.163279,   1.805921,   -1.371303,   -0.029298, x)
+			else      g=Cubic(  3.313963,  -8.334822,    7.779816,   -1.777729, x)
+
+			if     (x<.15) b=Cubic(  0.532434,   2.273628,   23.667368, -156.366854, x)
+			else if(x<.39) b=Cubic(  1.229754,  -3.907034,   13.494324,  -16.649945, x)
+			else if(x<.70) b=Cubic(  0.011934,   6.277798,  -14.821041,    9.471777, x)
+			else           b=Cubic( -3.553961,  15.536741,  -19.352350,    7.429805, x)
+		} else if(cm==8) { # Diverging-CoolWarm http://www.kennethmoreland.com/color-maps/
+			r=Cubic(      0.231337,  1.075890,  1.311415, -1.847011, x)
+			g=Cubic(      0.298328,  1.762637, -0.350029, -1.819830, x)
+			b=Cubic(      0.751440,  1.685291, -2.782078, -0.283025, x)
+			if(x>0.5) {
+				r=Cubic( -0.671865,  5.184908, -4.640348,  0.831930, x)
+				g=Cubic(  1.155680, -0.818882,  1.293472, -1.569916, x)
+				b=Cubic(  1.148734,  0.728630, -3.447502,  1.721348, x)
+			}
+		}
+
+		r=min(max(nint(r*255),0), 255)
+		g=min(max(nint(g*255),0), 255)
+		b=min(max(nint(b*255),0), 255)
+		return sprintf("#%02X%02X%02X", r, g, b)
+	} ' $file.xpm > $file~iv.xpm
+}
+
+usage="\
+>>>>>>>>>>>>>>>>     xpm2all    <<<<<<<<<<<<<<<<
+>>>>>>>>>>>>>>>>    Jicun Li    <<<<<<<<<<<<<<<<
+>>>>>>>>>>     2018-04-20 14:08:14     <<<<<<<<<
+Usage:   xpm2all <File> [-xyz|-rgb #]
+Default: xpm2all <File>  -xyz"
+
+[[ $# -lt 1 ]] && { echo "$usage"; exit; }
+
+opt=($@); N=${#opt[@]}; job=xyz
+for((i=0; i<N; i++)); do
+	arg=${opt[$i]}; j=$((i+1))
+	[[ $arg =~ -xyz ]] && { job=${arg/-/}; opt[$i]=""; }
+	[[ $arg =~ -rgb ]] && { job=${arg/-/}; opt[$i]=""; cm=${opt[$j]}; opt[$j]=""; }
+done
+
+file=${opt[@]%.xpm}
+xpm2$job

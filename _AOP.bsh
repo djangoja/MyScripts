@@ -1,0 +1,133 @@
+# 计算序参数
+# 版权归李继存所有，相关网站：http://jerkwin.github.io/
+
+echo '#time F3/AOP' >_F3_AOP.xvg
+echo '#time F4'     >_F4.xvg
+
+cat <<- "EOF"  > _calAOP.bsh   # 临时脚本名称必须与trjconv指定的一致
+conf=traj$1                    # 每帧gro文件名称, 必须与trjconv指定的一致
+pid=$$                         # pid作为之中间文件名, 防止冲突
+nul=/dev/null
+
+time=$(awk -v RS="\r?\n" 'NR==1{print $NF;exit}' $conf.gro)
+echo -n $time' ' >>_F3_AOP.xvg
+echo -n $time' ' >>_F4.xvg
+
+for cntAtom in {1..61..4}; do # cntAtom为中心氧原子编号, 连续三位点水
+
+	# 选择需要的原子
+	gmx select -f $conf.gro -on $conf.ndx -s -quiet &>$nul << EOS
+	r = distance from com of atomnr $cntAtom cutoff 0.4
+	atomname OW and 0. < r and r <.35
+	EOS
+
+	####################################################################
+	# 1. 计算F3/AOP
+	####################################################################
+
+	# 输出与中心原子所成的角度编号三联对
+	awk -v cntAtom=$cntAtom -v RS="\r?\n" '
+	NR>1 {txt=txt" "$0}
+	END{
+		print "[ ang ]"
+		n=split(txt, ndx)
+		for(i=1; i<=n; i++) for(j=i+1; j<=n; j++) print ndx[i], cntAtom, ndx[j]
+	}
+	' $conf.ndx > $pid.ndx
+
+	# 计算角度
+	gmx gangle -f $conf.gro -n $pid.ndx -group1 0 -s -oall -quiet &>$nul
+
+	# 根据得到的角度, 计算AOP/F3
+	awk ' BEGIN{d2r=atan2(1,1)/45; A=cos(109.47*d2r)^2;}
+	/^ *[0-9]/ {
+		for(i=2; i<=NF;i++) {
+			r=cos($i*d2r)
+			F3 += (r*abs(r)+A)^2
+		}
+		$1=""
+		printf "%f ", F3/(NF-1)
+	}
+	function abs(x) { return x>=0 ? x : -x }
+	' angles.xvg >> _F3_AOP.xvg
+
+	####################################################################
+	# 2. 计算F4
+	####################################################################
+
+	# 输出与中心原子, 选中原子对应的氢原子距离编号对
+	awk -v cntAtom=$cntAtom -v RS="\r?\n" '
+	NR>1 {txt=txt" "$0}
+	END{
+		print "[ dist ]"
+		n=split(txt, ndx)
+		cntH1=cntAtom+1; cntH2=cntAtom+2
+		for(i=1; i<=n; i++) {
+			H1=ndx[i]+1; H2=ndx[i]+2
+			print cntH1, H1,  cntH1, H2,  cntH2, H1,  cntH2, H2
+		}
+	}
+	' $conf.ndx > $pid.ndx
+
+	# 计算距离
+	gmx distance -f $conf.gro -n $pid.ndx -select 0 -s -oxyz -quiet &>$nul
+
+	# 根据距离最大值确定要计算的二面角
+	# 使用 -oall 输出的距离精度不够
+	# 使用 -oxyz 距离分量计算
+	dist=$(awk '
+		/^ *[0-9]/ {
+			for(i=2; i<=NF; i+=12) {
+				rmax=0
+				for(j=0; j<4; j++)
+				{	idx=i+3*j
+					rsq=$idx^2+$(idx+1)^2+$(idx+2)^2
+					if(rsq>rmax) { rmax=rsq; imax=j }
+				}
+				printf "%d ", imax+1
+			}
+		}
+		' distxyz.xvg)
+
+	# 输出要计算的二面角的编号四联对
+	awk -v cntAtom=$cntAtom -v dist="$dist" -v RS="\r?\n" '
+	NR>1 {txt=txt" "$0}
+	END{
+		split(dist, dih)
+		n=split(txt, ndx)
+		cntH1=cntAtom+1; cntH2=cntAtom+2
+		print "[ dih ]"
+		for(i=1; i<=n; i++) {
+			H1=ndx[i]+1; H2=ndx[i]+2
+			if(dih[i]==1) print cntH1, cntAtom, ndx[i], H1
+			if(dih[i]==2) print cntH1, cntAtom, ndx[i], H2
+			if(dih[i]==3) print cntH2, cntAtom, ndx[i], H1
+			if(dih[i]==4) print cntH2, cntAtom, ndx[i], H2
+		}
+	}
+	' $conf.ndx > $pid.ndx
+
+	# 计算二面角
+	gmx gangle -f $conf.gro -n $pid.ndx -g1 dihedral -group1 0 -s -oall -quiet &>$nul
+
+	# 根据得到的二面角计算F4
+	awk ' BEGIN{d2r=atan2(1,1)/45}
+	/^ *[0-9]/ { t=$1
+		for(i=2; i<=NF;i++) F4 += cos(3*$i*d2r)
+		$1=""
+		printf "%f ", F4/(NF-1)
+	}
+	' angles.xvg >> _F4.xvg
+
+	####################################################################
+	# 3. 删除临时文件
+	####################################################################
+
+	rm -f $conf.ndx $pid.ndx angles.xvg distxyz.xvg \#*.*
+done
+rm -f $conf.gro
+echo ' ' >>_F3_AOP.xvg
+echo ' ' >>_F4.xvg
+EOF
+
+echo 0 | gmx trjconv -b 0 -e 0 -f traj_comp.xtc -o traj.gro -sep -exec "bash _calAOP.bsh"

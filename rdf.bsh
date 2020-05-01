@@ -1,0 +1,8 @@
+#!/bin/bash
+# 计算轨迹每一帧的rdf（-b -e指定时间区间）
+cat > srdf.bsh <<- \EOF
+	conf=traj$1
+	gmx rdf -f $conf.gro -s md.tpr -ref MOL -sel SOL -o $conf.xvg -quiet
+EOF
+
+echo 0 | gmx trjconv -f md.xtc -s md.tpr -b 9999 -o traj.gro -sep -exec "bash srdf.bsh"

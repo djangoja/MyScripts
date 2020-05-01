@@ -1,0 +1,134 @@
+#!/bin/bash
+# a script for compiling windows gromacs for 2016, 2018 and 2019 version by intel MKL, including cpu and gpu version, which depends on whether you have installed CUDA toolkit.
+# author: liuyujie
+# date: 2019/05/11
+# update date: 2019/5/14
+# version: 1.1
+# note here I only tested the verson >=2016, more details could be found in the below website: http://liuyujie714.com/2018/01/30/Windows%E7%89%88%E6%9C%AC%E7%9A%84gromacs%E7%BC%96%E8%AF%91/
+
+cat > temp.txt << EOF
+###########################################################
+# Note:
+# You must install some needed softwares for compiling windows gromacs:
+# 1.CMake (need add the bin folder included cmake.exe to windows path(Do not use 3.14))
+# 2.Any shell software, for instance, cmder, cygwin, etc. for running grep, sed, etc.
+# 3.CUDA  --Optional(cpu version will be compiled if you did not install CUDA)
+# 4.Visual Studio Community 2017 (only vs2017 could pass without any error)
+# 5.GROMACS source code should be  2016.x, 2018.x or 2019.x (from official website)
+# 6.Intel parallel_studio_xe_2019 (need add path to windows environment variable)
+# You must put gromacs tar.gz file and this script into same folder
+##########################################################
+EOF
+cat temp.txt
+sleep 10
+rm temp.txt
+
+##### must change the below path for your MKL path#####
+export MKL_HOME="D:/IntelSWTools/compilers_and_libraries/windows"
+package=gromacs*.tar.gz
+# for gromacs2019.x
+if echo $(basename $package .tar.gz)|grep -i 2019 > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xvf gromacs-2019*.tar.gz
+	cd  gromacs-2019*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	
+	#### here, I changed pme-internal.h file because this vs2017 version(RTM 15) would cause an error, but if you update vs2017, it seems that no error occurred. ####
+	sed -i 's/enum PmeRunMode runMode/enum class PmeRunMode runMode/' ${install_file}/../src/gromacs/ewald/pme-internal.h
+	
+	# cmake source code
+	if nvcc --version | grep -i nvidia > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "CUDA has been installed on this Windows"
+		echo "GPU version of gromacs2019 will be installed on your windows after 10 seconds"
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" -DCMAKE_BUILD_TYPE=Release  -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  -DGMX_DEFAULT_SUFFIX=OFF  -DGMX_FFT_LIBRARY=mkl -DMKL_INCLUDE_DIR="$MKL_HOME/mkl/include" -DMKL_LIBRARIES="$MKL_HOME/mkl/lib/intel64_win/mkl_core.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_lp64.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_sequential.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_thread.lib;$MKL_HOME/compiler/lib/intel64_win/libiomp5md.lib" -DGMX_GPU=ON -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets
+	else 
+		echo ""
+		echo ""
+		echo "CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs2019 will be installed on your windows after 10 seconds"
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" -DCMAKE_BUILD_TYPE=Release  -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  -DGMX_DEFAULT_SUFFIX=OFF -DGMX_FFT_LIBRARY=mkl -DMKL_INCLUDE_DIR="$MKL_HOME/mkl/include" -DMKL_LIBRARIES="$MKL_HOME/mkl/lib/intel64_win/mkl_core.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_lp64.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_sequential.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_thread.lib;$MKL_HOME/compiler/lib/intel64_win/libiomp5md.lib" -DGMX_GPU=OFF
+	fi
+# for gromacs2018.x
+elif echo $(basename $package .tar.gz)|grep -i 2018 > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xvf gromacs-2018*.tar.gz
+	cd  gromacs-2018*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	
+	# cmake source code
+	if nvcc --version | grep -i nvidia > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "CUDA has been installed on this Windows"
+		echo "GPU version of gromacs2018 will be installed on your windows after 10 seconds"
+		sleep 10
+		### change M_PI to CUDART_PI_F and add head file (#include <math_constants.h>) into src/gromacs/ewald/pme-solve.cu, and add __device__ into src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh for recognizing via CUDA###
+		sed -i 's/M_PI/CUDART_PI_F/' ${install_file}/../src/gromacs/ewald/pme-solve.cu
+		sed -i '/^#include "config.h"$/a\#include <math_constants.h>' ${install_file}/../src/gromacs/ewald/pme-solve.cu
+		sed -i 's/c_oneSixth    = 0.16666667f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		sed -i 's/c_oneTwelveth = 0.08333333f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		cmake .. -G "Visual Studio 15 2017 Win64" -DCMAKE_BUILD_TYPE=Release  -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  -DGMX_DEFAULT_SUFFIX=OFF  -DGMX_FFT_LIBRARY=mkl -DMKL_INCLUDE_DIR="$MKL_HOME/mkl/include" -DMKL_LIBRARIES="$MKL_HOME/mkl/lib/intel64_win/mkl_core.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_lp64.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_sequential.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_thread.lib;$MKL_HOME/compiler/lib/intel64_win/libiomp5md.lib" -DGMX_GPU=ON -DGMX_NVCC_WORKS=ON -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets
+	else 
+		echo ""
+		echo ""
+		echo "CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs2018 will be installed on your windows after 10 seconds"
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" -DCMAKE_BUILD_TYPE=Release  -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  -DGMX_DEFAULT_SUFFIX=OFF -DGMX_FFT_LIBRARY=mkl -DMKL_INCLUDE_DIR="$MKL_HOME/mkl/include" -DMKL_LIBRARIES="$MKL_HOME/mkl/lib/intel64_win/mkl_core.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_lp64.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_sequential.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_thread.lib;$MKL_HOME/compiler/lib/intel64_win/libiomp5md.lib" -DGMX_GPU=OFF
+	fi
+# for gromacs2016.x
+elif echo $(basename $package .tar.gz)|grep -i 2016 > /dev/null 2>&1; then
+	# unpack source code of gromacs
+	tar -xvf gromacs-2016*.tar.gz
+	cd  gromacs-2016*/
+	
+	mkdir build
+	cd build/
+	install_file=`echo | pwd`
+	# cmake source code
+	if nvcc --version | grep -i nvidia > /dev/null 2>&1; then
+		echo ""
+		echo ""
+		echo "CUDA has been installed on this Windows"
+		echo "GPU version of gromacs2016 will be installed on your windows after 10 seconds"
+		sleep 10
+		### add __device__ into src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh for recognizing via CUDA###
+		sed -i 's/c_oneSixth    = 0.16666667f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		sed -i 's/c_oneTwelveth = 0.08333333f;/__device__      &/'   ${install_file}/../src/gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_kernel_utils.cuh
+		cmake .. -G "Visual Studio 15 2017 Win64" -DCMAKE_BUILD_TYPE=Release  -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_gpu  -DGMX_DEFAULT_SUFFIX=OFF  -DGMX_FFT_LIBRARY=mkl -DMKL_INCLUDE_DIR="$MKL_HOME/mkl/include" -DMKL_LIBRARIES="$MKL_HOME/mkl/lib/intel64_win/mkl_core.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_lp64.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_sequential.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_thread.lib;$MKL_HOME/compiler/lib/intel64_win/libiomp5md.lib" -DGMX_GPU=ON -DCUDA_NVCC_FLAGS=--Wno-deprecated-gpu-targets
+	else 
+		echo ""
+		echo ""
+		echo "CUDA has not been installed on this Windows"
+		echo "CPU version of gromacs2016 will be installed on your windows after 10 seconds"
+		sleep 10
+		cmake .. -G "Visual Studio 15 2017 Win64" -DCMAKE_BUILD_TYPE=Release  -DCMAKE_INSTALL_PREFIX=${install_file}/../../win_gromacs_cpu  -DGMX_DEFAULT_SUFFIX=OFF -DGMX_FFT_LIBRARY=mkl -DMKL_INCLUDE_DIR="$MKL_HOME/mkl/include" -DMKL_LIBRARIES="$MKL_HOME/mkl/lib/intel64_win/mkl_core.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_lp64.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_sequential.lib;$MKL_HOME/mkl/lib/intel64_win/mkl_intel_thread.lib;$MKL_HOME/compiler/lib/intel64_win/libiomp5md.lib" -DGMX_GPU=OFF
+	fi
+else 
+	echo ""
+	echo ""
+	echo "You haven't source code of gromacs 2016, 2018 or 2019, the program will not work！"
+	exit 1
+fi
+sleep 5
+# the final install
+cmake --build . --target INSTALL --config Release
+sleep 5
+# clear rubbish file
+cd ../../
+# rm -rf gromacs-201*/
+# rm -rf fftw*/
+
+echo ""
+echo ""
+echo "The windows gromacs has been compiled!!!"
