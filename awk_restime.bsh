@@ -1,0 +1,35 @@
+#!/bin/bash
+
+awk  '
+    /^[^#@]/ {
+        line++
+        split($0, temp)
+        for(i = 1; i <= NF; i++) {
+            data[line, i] = temp[i]+0
+        }
+    }
+    
+    END {
+        dt = data[2, 1] - data[1, 1] #ps
+        for(i = 2; i <= NF; i++) { #each molecule
+            Ttotal = 0; count = 0
+            for(j = 1; j < line; j++) { #right layer 0.495 nm
+                if(data[j, i] == 1) {
+                    Ttotal++;
+                }
+                if(data[j, i] != data[j+1, i]) {
+                    count += 0.5
+                }
+            }
+            if(data[line, i] == 1) {Ttotal++}
+            if(Ttotal > 0) {
+                sumT += Ttotal*dt/ceil(count)
+                mol++
+            }
+        }
+        print "Avaraged Residence Time(ps)= "sumT/mol " ps"
+    }
+    function ceil(x) {
+        return (x > int(x) ? int(x) + 1 : int(x))
+    }
+' mask.xvg

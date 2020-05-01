@@ -1,0 +1,148 @@
+#!/bin/bash
+# A simple script for fitting Linear, Quadratic or Freundlich equation
+
+echo "
+>>>>>>>>>>   Fitting Curve Program   <<<<<<<<
+>>>>>>>>>>>         Yujie Liu      <<<<<<<<<<
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+"
+Usage() {
+echo "
+    Usage: $0 options
+    Options:
+        -h          Show help information
+        -i [file]   Data file name, with two column
+        -t [value]  Fitting types, including:
+                        1:  Linear equation
+                        2:  Quadratic equation
+                        3:  Freundlich adsorption isotherm
+Example: Fitting data into linear equation
+         bash $0 -i line.dat -t 1
+"
+}
+DATA=
+TYPE=
+while getopts h:i:t: OPTION
+do
+    case $OPTION in
+        h)
+            Usage
+            exit 1
+            ;;
+        i)
+            DATA=$OPTARG
+            ;;
+        t)
+            TYPE=$OPTARG
+            ;;
+        ?)
+            Usage
+            exit 2
+            ;;
+    esac
+done
+
+if [[ -z $DATA ]] || [[ -z $TYPE ]]
+then
+    echo "Missing input paramets!"
+    Usage
+    exit 3
+fi
+
+if [ $TYPE -eq 1 ]; then
+awk -v data=$DATA -v FS="[ ,\t]+" '
+    BEGIN {
+        sumxy = 0; sumxx = 0; sumx = 0; sumy = 0; n = 0;
+        ss_t = 0; ss_r = 0;
+        while(getline<data) {
+            sumxy += $1 * $2
+            sumxx += $1 * $1
+            sumx  += $1
+            sumy  += $2
+            n++
+        }
+        close(data)
+        k = (sumxy - n * (sumx/n) * (sumy/n))/(sumxx - n * (sumx/n)^2)
+        b = (sumy/n) - (k * (sumx/n))
+        printf("Evaluation of equation: y = (%.14f) * x + (%.14f)\n", k, b)
+    }
+    
+    {
+    ss_t += ($2 - sumy/n)^2
+    ss_r += ($2 - (k * $1 + b))^2
+    }
+    
+    END {
+        r2 = 1 - (ss_r / ss_t)
+        printf("\t\t\tR^2 = %.6f\n", r2)
+    }
+' $DATA
+
+elif [ $TYPE -eq 2 ]; then
+awk -v data=$DATA -v FS="[ ,\t]+" '
+    BEGIN {
+        N = 1e-20;
+        sumx = 0; sumx2 = 0; sumx3 = 0; sumx4 = 0; 
+        sumy = 0; sumxy = 0; sumx2y = 0;  a = b = c = n = 0;
+        while(getline<data) {
+            sumx += $1; sumy += $2; sumxy += $1 * $2;
+            sumx2 += ($1)^2; sumx3 += ($1)^3; sumx4 += ($1)^4;
+            sumx2y += ($1)^2 * $2;
+            n++
+        }
+        close(data)
+        do {
+            m1=a; a=(sumx2y-sumx3*b-sumx2*c)/sumx4; z1=(a-m1)*(a-m1);
+            m2=b; b=(sumxy-sumx*c-sumx3*a)/sumx2; z2=(b-m2)*(b-m2);
+            m3=c; c=(sumy-sumx2*a-sumx*b)/n; z3=(c-m3)*(c-m3);
+        } while(z1 > N || z2 > N || z3 > N);
+        printf ("Evaluation of equation: y = (%.14f) * x^2 + (%.14f) * x + (%.14f)\n", a, b, c)
+    }
+    
+    {
+    ss_t += ($2 - sumy/n)^2
+    ss_r += ($2 - (a * ($1)^2 + b * $1 + c))^2
+    }
+    
+    END {
+        r2 = 1 - (ss_r / ss_t)
+        printf("\t\t\tR^2 = %.6f\n", r2)
+    }
+' $DATA
+
+elif [ $TYPE -eq 3 ]; then
+awk -v data=$DATA -v FS="[ ,\t]+" '
+    BEGIN {
+        sumxy = 0; sumxx = 0; sumx = 0; sumy = 0; n = 0;
+        ss_t = 0; ss_r = 0;
+        while(getline<data) {
+            sumy1  += $2
+            $1 = log($1); $2 = log($2)
+            sumxy += $1 * $2
+            sumxx += $1 * $1
+            sumx  += $1
+            sumy  += $2
+            n++
+        }
+        close(data)
+        k = (sumxy - n * (sumx/n) * (sumy/n))/(sumxx - n * (sumx/n)^2)
+        b = (sumy/n) - (k * (sumx/n))
+        n1 = 1/k; k1 = exp(b)
+        printf("Evaluation of equation: y = (%.14f) * x^(1/%.14f)\n", k1, n1)
+    }
+    
+    {
+    ss_t += ($2 - sumy1/n)^2
+    ss_r += ($2 - (k1 * $1^(1/n1)))^2
+    }
+    
+    END {
+        r2 = 1 - (ss_r / ss_t)
+        printf("\t\t\tR^2 = %.6f\n", r2)
+    }
+' $DATA
+
+else {
+      echo -e "No support type!!\n"
+     }
+fi

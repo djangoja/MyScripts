@@ -1,0 +1,33 @@
+#!/bin/bash
+# A bash script for translating the ascii file from Trj2Ascii.exe tools of Material Studio
+# into .xyz file. Although there is perl script can directly translate .xtd trajectory file
+# into .xyz file, its speed is very slow. So given this bash script, together with Trj2Ascii.exe,
+# being faster
+
+# Author liuyujie
+# Firstly, using "Trj2Ascii.exe water.trj water.txt" to obtain general txt file
+# Usage: bash ms2xyz.bsh water.xtd water.txt
+# Date 2019.11
+
+Usage="> Usage: Trj2Ascii.exe water.trj water.txt
+         bash ms2xyz.bsh water.xtd water.txt
+"
+[[ $# -lt 2 ]] && { printf "ERROR! Need two arguments\n$Usage"; exit 1;}
+
+xtd=$1
+trj=$2
+file=${xtd%%.*}.xyz
+
+awk -v RS="\r?\n" -v m=1 -v i=0 ' 
+    /Components=/ {Atomname[i]=$(NF); sub(/.+="/, "", Atomname[i]);
+                   sub(/">/, "", Atomname[i]); i++; }
+    
+    /Coordinates:/ {
+                    print i; printf("Frame %d\n", m); m++
+                    for(j = 0; j < i; j++) {
+                        x[j]=$(NF-2); y[j]=$(NF-1); z[j]=$(NF);
+                        printf("%s%11.6f%11.6f%11.6f\n", Atomname[j], x[j], y[j], z[j]);
+                        getline}
+                    }
+                  
+' $xtd $trj > $file

@@ -1,0 +1,115 @@
+#!/bin/bash
+# A script for generating a piece of graphene
+
+############################################################################
+#                     Author : Written by Yujie Liu                        #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.1                                #
+#                           Date : 2020.04.01                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Description() {
+    echo -e "
+>>DESCRIPTION: 
+    $0 can generate a piece of graphene, the output file is .gro format."
+}
+
+Usage() {
+    echo "
+    Usage $0 Options:
+        -h      Show help information
+        -lx     Value [nm], the length of graphene (default: 10 nm)
+        -ly     Value [nm], the width of graphene (default: 10 nm)
+        -o      Output, .gro file (default: graphene.gro) 
+    "
+}
+
+lx=10
+ly=10
+
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h ]] && { Description; Usage; exit 2; }
+    [[ $arg =~ -lx ]]  && { lx=${options[$j]}; }
+    [[ $arg =~ -ly ]]  && { ly=${options[$j]}; }
+    [[ $arg =~ -o ]]  && { outputfile=${options[$j]}; }
+done
+
+if [[ -z ${outputfile} ]] ;then
+    outputfile="graphene.gro"
+fi
+
+awk '
+    BEGIN {
+        lx = "'$lx'" + 0; ly = "'$ly'" + 0; outputfile = "'$outputfile'"
+        Print_parameters()
+        Graphene(ly, lx)
+        print outputfile " has been generated successfully！"
+    }
+    
+    function Print_parameters() {
+        print "You are using the following parameters:"
+        print "\tthe length is around: ", int(lx), "nm"
+        print "\tthe width  is around: ", int(ly), "nm"
+    }
+    
+    function Graphene(n, m) { 
+        cabond = 0.1418; index1 = -1
+        m = int((m/cabond+1)/1.5)
+        n = int(n/(0.866*cabond))
+        m = m%2==0? m : m+1 # m, n is even for generating correct periodic molecule
+        n = n%2==0? n : n+1
+
+        for(i = 0; i < n; i++) {
+            for(j = 0; j < m; j++) {
+                atomsxyz[++index1] = j+i*m+1
+                atomsxyz[++index1] = "C"
+                if(i%2 == 0) {
+                    if(j%2 == 0) {
+                        atomsxyz[++index1] = int(j/2)*3*cabond
+                        atomsxyz[++index1] = int(i/2)*1.732*cabond
+                        atomsxyz[++index1] = 0
+                    }
+                    else {
+                        atomsxyz[++index1] = int(j/2)*3*cabond+cabond
+                        atomsxyz[++index1] = int(i/2)*1.732*cabond
+                        atomsxyz[++index1] = 0
+                    }
+                }
+                else {
+                    if(j%2 == 0) {
+                        atomsxyz[++index1] = int(j/2)*3*cabond-0.5*cabond
+                        atomsxyz[++index1] = int(i/2)*1.732*cabond+0.866*cabond
+                        atomsxyz[++index1] = 0
+                    }
+                    else {
+                        atomsxyz[++index1] = int(j/2)*3*cabond+1.5*cabond
+                        atomsxyz[++index1] = int(i/2)*1.732*cabond+0.866*cabond
+                        atomsxyz[++index1] = 0
+                    }
+                }
+            }
+        }
+        
+        t1 = 0
+        for(i = 0; i < int(length(atomsxyz)/5); i++) { // mol is 9
+            for(j = 0; j < 5; j++) { // mol is 9
+                lyatomsdata[i, j] = atomsxyz[t1]
+                t1++
+            }
+        }
+        #===========================PRINT GRO FILE======================#
+        print "MOL" > outputfile
+        print int(length(atomsxyz)/5) >> outputfile
+        for(i = 0; i < int(length(atomsxyz)/5); i++) {
+            printf("%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
+                    1, "GRA", lyatomsdata[i, 1], lyatomsdata[i, 0]%100000, \
+                    lyatomsdata[i, 2], lyatomsdata[i, 3], lyatomsdata[i, 4]) >> outputfile
+        }
+        #This is periodic box in x and y axis
+        printf("%12.4f %12.4f %12.4f\n", 
+                m*1.5*cabond, n*cabond*0.866, 0.2) >> outputfile
+    }
+'

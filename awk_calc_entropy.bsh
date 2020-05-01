@@ -1,0 +1,110 @@
+#!/bin/bash
+# A bash script for calculating configurational entropy from the mass-weighted covariance matrix eigenvalues obtained from Gromacs or from NM analysis matrix frequencies (run with -n)
+
+############################################################################
+#                     Author : Rewritten by Yujie Liu                      #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.03.08                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Usage() {
+    echo "
+    Usage: $0 Options
+        -h    Show help information
+        -i    Input, matrix eigenvalues file (default: eigenval.xvg)
+        -t    Value, Temperature (K) (default: 300)
+        -n    Value, '0' represents from mass-weighted covariance matrix eigenvalues, other value represents from NM analysis matrix frequencies (default: 0)
+    "
+}
+
+Information() {
+echo -e "
+>>DESCRIPTION:
+
+$0 calculates the configurational entropy from the mass-weighted covariance matrix eigenvalues obtained from Gromacs or from NM analysis matrix frequencies (run with -n)
+The entropies are calculated based on the <quasi-Harmonic approximation> and <Schlitter formula>
+More information please see the article \e[1;31m[J Chem Phys 115:6289]\e[0m, Eq. 13"
+}
+#+++++++++++++++++++++++++++DEFAULT PARAMETERS+++++++++++++++++++++++++#
+eigenval="eigenval.xvg"
+t=300
+nma=0
+
+[[ $# -lt 1 ]] && { Information; Usage; exit 1; }
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h ]] && { Usage; exit 2; }
+    [[ $arg =~ -i ]]  && { eigenval=${options[$j]}; }
+    [[ $arg =~ -t ]]  && { t=${options[$j]}; }
+    [[ $arg =~ -n ]]  && { nma=${options[$j]}; }
+done
+
+awk '
+    BEGIN {
+        t = "'$t'"+0; nma = "'$nma'"+0; eigenval = "'$eigenval'"
+        PI = 4*atan2(1, 1)
+        k  = 1.3806503e-23      # joule/K, boltzmann constant
+        hp = 6.6260693e-34      # Planck constant
+        u  = 1.6605402e-27      # Atomic mass unit (kg) 
+        j2c = 1 / 4.1858518     # Convert Joule to Cal
+        av = 6.0221367e23       # Avogadro constant
+        h  = hp / (2*PI)        # hbar joule*sec (=h/(2*pi))
+        min_ev = 1.0e-6         # smaller eigenvalues are ignored
+        s  = 0
+        deter = 0
+    }
+    $0!~/^[\#@]/ {
+        ev_number = $1
+        ev = $2
+        if(ev < min_ev)
+            next
+        if(nma != 0 && ev_number < 7)
+            next
+        if(nma != 0) {
+            w = sqrt(ev)*10^12  # ev=(2PI*w)^2
+            s += -log(1 - exp(-h*w/(k*t))) + (av*h*w*exp(-h*w/(k*t))) / (t*(1-exp(-h*w/(k*t))))
+        }
+        else {
+            Calc_entropy_qh(ev)
+            Calc_entropy_Schlitter(ev)
+        }
+    }
+    
+    END {
+        s  = s*k*av
+        sc = s*j2c
+        S  = 0.5*k*av*deter
+        Sc = S*j2c
+        printf("%s\n", "Results: ")
+        printf("\tInput file: %s\n", eigenval)
+        printf("\tTemperature: %s (K)\n", t)
+        if(nma != 0) {
+            printf("Entropies will be calculated for NMA\n")
+        }
+        printf("\t%-30s = %.3f (J/mol K) or %.3f (Cal/mol K)\n", 
+               "Quasi Harmonic approximation", s, sc)
+        if(nma == 0) 
+            printf("\t%-30s = %.3f (J/mol K) or %.3f (Cal/mol K)\n", 
+               "Schlitter formula", S, Sc)
+    }
+    
+    #++++++++++++++++++++++Quasi Harmonic approximation++++++++++++++++#
+    function Calc_entropy_qh(value) {
+        w = value*u*10^(-18)
+        w = sqrt(k*t/w)
+        hwkT = h*w/(k*t)
+        dS = hwkT/(exp(hwkT) - 1) - log(1-exp(-1*hwkT))
+        s += dS
+    }
+    
+    #++++++++++++++++++++++++Schlitter formula+++++++++++++++++++++++++#
+    function Calc_entropy_Schlitter(value) {
+        kt   = k*t
+        kteh = kt*exp(2.0)/(h^2)*u*10^(-18)
+        dd   = 1 + kteh*value
+        deter += log(dd)
+    }
+' $eigenval

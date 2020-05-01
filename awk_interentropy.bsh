@@ -1,0 +1,85 @@
+#!/bin/bash
+# A script for calculating interaction entropy.
+# The following website gives some discussion:
+# http://bbs.keinsci.com/thread-14068-1-8.html
+
+############################################################################
+#                     Author : Written by Yujie Liu                        #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.03.25                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Description() {
+    echo -e "
+>>DESCRIPTION: 
+    $0 can calculate interaction entropy, original method derived from aritcle
+    [J. Am. Chem. Soc (2016):jacs.6b02682]. This script only gives you HOW TO DO, 
+    NOT express my opinion for the validity of the method.
+    
+    Usage:
+    
+        Please change some initial variables in this script!
+    "
+}
+[[ $# -lt 1 ]] && { Description; exit 1; }
+
+#======================YOU NEED CHANGE THIS SECTION=====================#
+pro="Protein"
+lig="BEC"
+com="Protein_BEC"
+tpr="1EBZ.tpr"
+xtc="1EBZ.xtc"
+ndx="index.ndx"
+T=298
+#=======================================================================#
+
+#=========================DON NOT CHANGE================================# 
+for i in $pro $lig $com
+do
+    echo -e "${i}" |gmx trjconv -f $xtc -s $tpr -n $ndx -o inter_${i}.xtc > /dev/null 2>&1
+    echo -e "${i}" |gmx convert-tpr -s $tpr -n $ndx -o new_${i}.tpr > /dev/null 2>&1
+    gmx mdrun -rerun inter_${i}.xtc -s new_${i}.tpr -e inter_${i}.edr > /dev/null 2>&1
+    echo -e "LJ-(SR) \n Coulomb-(SR) \n Coul.-recip." |gmx energy -f inter_${i}.edr -o inter_${i}.xvg > /dev/null 2>&1
+    cat inter_${i}.xvg |grep -E "^[^@#]" | awk '{print $2, $3, $4}'> inter_${i}.xvg
+done
+
+paste inter_${pro}.xvg inter_${lig}.xvg inter_${com}.xvg |\
+awk '
+    {
+        vdw = $7-$1-$4; cou = (($8+$9)-($5+$6)-($2+$3))/2.0;
+        tvdw += vdw; tcou += cou; n++
+        print vdw, cou, vdw+cou
+    } 
+    END{
+        print n, tvdw/n, tcou/n, (tvdw+tcou)/n
+    }' |\
+awk '
+    BEGIN { 
+        t = 0 
+        kb  = 1.3806503e-23   # J/K
+        av = 6.0221367e23     # Avogadro constant
+        T   = "'$T'"+0        # Temperature (K) 
+        kbT = kb*T*av/1e3     # KJ/mol
+    }
+    NF == 3 {
+        E[t] = $3+0
+        t++
+    }
+    
+    END {
+        printf("=========================================\n")
+        printf("%-25s %8.3f (KJ/mol)\n%-25s %8.3f (KJ/mol)\n",
+               "Vdw energy:", $2, "Coulomb energy:", $3)
+        Eave = $4+0
+        for(i = 0; i < t; i++) {
+            sum += exp(1/kbT*(E[i]-Eave))
+        }
+        _TS = kbT*log(sum/t)
+        printf("%-25s %8.3f (KJ/mol)\n", "Interaction  entropy:", _TS)
+        printf("=========================================\n\n")
+        printf("%-25s %8.3f (KJ/mol)\n", "Binding energy:", $2+$3+_TS)
+    }
+'
+rm -rf inter_* Coul* LJ_SR* Disper* new_*.tpr *# traj.trr

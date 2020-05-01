@@ -1,0 +1,22 @@
+#!/bin/bash
+# A bash script for generating uniformly distributed numbers on a sphere
+# Author: liuyujie
+
+awk '
+    BEGIN {
+        N = 2000; PI = 3.141592653; srand()
+        #printf("%9s%9s%9s%9s%9s\n", "#theta", "phi", "x", "y", "z")
+        for(i = 0; i < N; i++) {
+            theta = 2 * PI * rand()
+            phi = acos(1 - 2 * rand())
+            x = sin(phi) * cos(theta)
+            y = sin(phi) * sin(theta)
+            z = cos(phi)
+            printf("%10.6f%10.6f%10.6f%10.6f%10.6f\n", theta, phi, x, y, z)
+        }
+    }
+    
+    function acos(x) {
+        return atan2(sqrt(1.0-x^2), x)
+    }
+' > sphere.dat

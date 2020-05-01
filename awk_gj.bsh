@@ -1,0 +1,66 @@
+#!/bin/bash
+# A simple script for calculating N x N inverse matrix
+# Usage: bash inv.bsh data.txt
+
+data=$1
+awk -v data=$data '
+    BEGIN {
+        FS = "[ ,\t]+"
+        line = 0
+        while(getline<data>0) {
+            for(j = 0; j < NF; j++) {
+                x[line, j] = $(j+1)
+            }
+            line++
+        }
+        inv(x, line, invmatrix)
+        for(i=0;i<line;i++) {  
+                for(j=0;j<line;j++) {  
+                    printf("%8.4f", invmatrix[i,j])
+                } 
+                printf("\n")
+            } 
+    }
+    
+    function matrixmult(X, matriX, num_params) {
+        for(kj = 0; kj < num_params; kj++) {
+            for(jk = 0; jk < num_params; jk++) {
+                if(kj == jk) {
+                    matriX[kj, jk] = 1
+                }
+                else {
+                    matriX[kj, jk] = 0
+                }
+                matriX[kj, jk] = X*matriX[kj, jk]
+            }
+        }
+    }
+    
+    function inv(aa, n, invm) {
+        matrixmult(1, matrixE, n)
+        for(k=0;k<n-1;k++) {  
+            for(i=k+1;i<n;i++) {  
+                m=aa[i,k]/aa[k,k];  
+                for(j=0;j<n;j++) {  
+                    aa[i,j]=aa[i,j]-m*aa[k,j];  
+                    matrixE[i,j]=matrixE[i,j]-m*matrixE[k,j];  
+                }  
+            }  
+        }
+        for(k=n-1;k>0;k--) {  
+            for(i=k-1;i>=0;i--) {  
+                m=aa[i,k]/aa[k,k];  
+                for(j=0;j<n;j++) {  
+                    aa[i,j]=aa[i,j]-m*aa[k,j];  
+                    matrixE[i,j]=matrixE[i,j]-m*matrixE[k,j];  
+                }  
+            }  
+        }  
+        for(i=0;i<n;i++) {  
+            for(j=0;j<n;j++) {  
+                invm[i,j]=matrixE[i,j]/aa[i,i];  
+            }  
+        } 
+    }
+    
+'

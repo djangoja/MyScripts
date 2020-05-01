@@ -1,0 +1,48 @@
+#!/bin/bash
+usage() {
+    echo "
+    Usage: $0  options
+        -h    Show help information
+        -i    Input trajectory pdb file  
+"
+}
+PDB=
+while getopts hi: OPTION
+do
+    case $OPTION in
+        h)
+            usage
+            exit 1
+            ;;
+        i)
+            PDB=$OPTARG
+            ;;
+        ?)
+            echo "Input option is wrong!"
+            usage
+            exit 2
+            ;;
+    esac
+done
+
+if [[ -z $PDB ]]; then
+    echo "Missing Input parameters!"
+    usage
+    exit 3
+fi
+awk -v PDB=$PDB '
+    BEGIN {
+        i = 1
+        while(getline<PDB>0) {
+            if($0!~/END/) {
+                print > i".pdb"
+            }
+            else {
+                #print "Writing"" "i" ""frames" 
+                print "END" >> i".pdb"
+                i++
+            }
+        }
+        close(PDB)
+    }
+'

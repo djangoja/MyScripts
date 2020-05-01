@@ -1,0 +1,123 @@
+#!/bin/bash
+# A script for splicing a molecule one by one, can use to generate linear polymer.
+# Original source from the website: 
+# https://jerkwin.github.io/2017/08/27/%E6%8B%BC%E6%8E%A5%E5%88%86%E5%AD%90%E7%9A%84%E7%AE%80%E5%8D%95%E8%84%9A%E6%9C%AC/
+
+############################################################################
+#                     Author : Rewritten by Yujie Liu                      #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.03.16                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Description() {
+    echo -e "
+>>DESCRIPTION: 
+    A script for splicing a molecule one by one, can use to generate linear polymer.
+    $0 can splice a molecule one by one, For example, Single Molecule <A> can be
+    transformed <A-A-A-A...-A>, the count of A is N.
+    "
+}
+
+Usage() {
+    echo "
+    Usage $0 Options:
+        -h      Show help information
+        -i      Input, Single Molecule gro file (default: mol.gro)
+        -head   Value, head atom index (from 1 start)
+        -tail   Value, tail atom index (from 1 start)
+        -n      Value, Number of splices <degree of polymerization> (default: 10)
+    "
+}
+
+inputfile="mol.gro"
+head=
+tail=
+n=10
+
+[[ $# -lt 1 ]] && { Description; exit 1; }
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h$ ]] && { Description; Usage; exit 2; }
+    [[ $arg =~ -i ]]  && { inputfile=${options[$j]}; }
+    [[ $arg =~ -head ]]  && { head=${options[$j]}; }
+    [[ $arg =~ -tail ]]  && { tail=${options[$j]}; }
+    [[ $arg =~ -n ]]  && { n=${options[$j]}; }
+done
+
+outputfile="${inputfile//.gro}~${n}.gro"
+if [[ ! -e ${inputfile} ]];then
+    echo -e "\nInput File (${inputfile}) not found! Please check."
+    exit
+fi
+
+if [[ -z $head ]] || [[ -z $tail ]]; then
+    echo "Need enough parameters <-head and -tail>"
+    Usage
+    exit
+fi
+
+awk '
+    BEGIN {
+        #=====================INITIAL VALUE=============================#
+        inputfile = "'$inputfile'"; outputfile = "'$outputfile'"; 
+        head = "'$head'"+0; tail = "'$tail'"+0; n = "'$n'"+0
+        count = 0
+        
+        #+++++++++++++++++++++READ GRO FILE+++++++++++++++++++++++++++++#
+        ReadGro(inputfile, X, Y, Z)
+        for(i = 1; i <= n; i++) {
+            for(j = 1; j <= Natom; j++) {
+                res[i, j] = Res[j]
+                s[i, j]   = Aname[j]
+                x[i, j]   = X[j]
+                y[i, j]   = Y[j]
+                z[i, j]   = Z[j]
+            }
+        }
+        printf(" The atom number of Linear Polymer: %d\n", (Natom-2)*n+2)
+        printf(" Tips: %s\n Head atom number: %d\n Tail atom number: %d\n Degree: %d\n",
+               Tips, head, tail, n)
+        
+        #+++++++++++++++++++++++++WRITE FILE+++++++++++++++++++++++++++#
+        print Tips > outputfile
+        print (Natom-2)*n+2 >> outputfile
+        for(i = 1; i <= n; i++) {
+            if(i > 1) {
+                dx = x[i, head] - x[i-1, tail]
+                dy = y[i, head] - y[i-1, tail]
+                dz = z[i, head] - z[i-1, tail]
+            }
+            for(j = 1; j <= Natom; j++) {
+                x[i, j] -= dx
+                y[i, j] -= dy
+                z[i, j] -= dz
+                if((i==1 && j!=tail) || (i==n &&j!=head) \
+                    || (i!=1 && i!=n && j!=head && j!=tail)) {
+                    count++
+                    if(count>99999)
+                        count = 0
+                    printf("%5d%-5s%5s%5d%8.3f%8.3f%8.3f\n",
+                           1, res[i, j], s[i,j], count, x[i,j], y[i,j], z[i,j]) >> outputfile
+                }
+            }
+        }
+        printf("%12.4f %12.4f %12.4f\n", 0, 0, 0) >> outputfile
+    } 
+    
+    #=====================ReadGro FUNCTION==============================#
+    function ReadGro(grofile, x, y, z, _ARGVEND_, i) {
+        getline < grofile; Tips  = $0
+        getline < grofile; Natom = $1
+        for(i = 1; i <= Natom; i++) {
+            getline < grofile
+            Res[i]   = substr($0, 6, 5); gsub(" ", "", Res[i])
+            Aname[i] = substr($0, 11, 5); gsub(" ", "", Aname[i])
+            x[i]=substr($0, 21, 8)+ 0; y[i]=substr($0, 29, 8)+ 0;
+            z[i]=substr($0, 37, 8)+ 0
+        }
+        close(grofile)
+    }
+'

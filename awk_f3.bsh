@@ -1,0 +1,102 @@
+#!/bin/bash
+# A bash script for calculating F3/AOP of three simple points water model
+# Usage: echo 0 |gmx trjconv -f -s -n -b 1 -e 1 -sep -o traj.gro -exec "bash F3.bsh"
+
+conf=traj$1
+awk -v file=$conf.gro -v RS="\r?\n" -v i=0 -v k=0 -v n=0 -v f3=0 \
+    -v cy=0 '
+    BEGIN {getline<file; getline<file; atom=$1
+        while(getline<file) {
+            Aname[i]=substr($0, 11, 5); x[i]=substr($0, 21, 8)+ 0;
+            y[i]=substr($0, 29, 8)+ 0; z[i]=substr($0, 37, 8)+ 0;
+            i++
+        }
+        if(getline<file==0) {
+            Lx=$1; Ly=$2; Lz=$3;
+            #print Lx, Ly, Lz
+        }
+        close(file)
+        
+        for(j=0; j<=i; j++) {
+            if(Aname[j]~/OW/) {
+                x[k]=x[j]; y[k]=y[j]; z[k]=z[j]
+                #printf "%d%8.3f%8.3f%8.3f\n", k, x[k], y[k], z[k]
+                k++
+            }
+        }
+        
+        for(ii=0; ii<k; ii++) {
+            for(jj=0; jj<k; jj++) {
+                d[1] = x[ii] - x[jj]
+                d[2] = y[ii] - y[jj]
+                d[3] = z[ii] - z[jj]
+                applmic(d, Lx, Ly, Lz)
+                dist = Ld(d)
+                if(dist < 0.35 && dist > 0) {
+                    N[n] = jj
+                    n++
+                }
+            }
+            for(ij=0; ij<n-1; ij++) {
+                for(k1=ij+1; k1<n; k1++) {
+                    r1[1] = x[ii] - x[N[ij]]
+                    r1[2] = y[ii] - y[N[ij]]
+                    r1[3] = z[ii] - z[N[ij]]
+                    applmic(r1, Lx, Ly, Lz)
+                    
+                    r2[1] = x[ii] - x[N[k1]]
+                    r2[2] = y[ii] - y[N[k1]]
+                    r2[3] = z[ii] - z[N[k1]]
+                    applmic(r2, Lx, Ly, Lz)
+                    
+                    r3[1] = x[N[ij]] - x[N[k1]]
+                    r3[2] = y[N[ij]] - y[N[k1]]
+                    r3[3] = z[N[ij]] - z[N[k1]]
+                    applmic(r3, Lx, Ly, Lz)
+
+                    la = Ld(r1)
+                    lb = Ld(r2)
+                    lc = Ld(r3)
+                    ca = (la*la + lb*lb - lc*lc) / (2.0*la*lb)
+                    if(ca <= 1 && ca >= -1) {
+                        r  = pow((ca*abs(ca) + pow(cos(109.47*atan2(1,1)/45), 2)), 2)
+                        f3 += r
+                        cy ++
+                    }
+                }
+            }
+            print f3/cy
+            n  = 0
+            cy = 0
+            f3 = 0
+        }
+    }
+
+    function applmic(b1, Lx, Ly, Lz) {
+        if(b1[1] > Lx/2.0)        b1[1] -= Lx
+        else if(b1[1] < -Lx/2.0)  b1[1] += Lx
+        if(b1[2] > Ly/2.0)        b1[2] -= Ly
+        else if(b1[2] < -Ly/2.0)  b1[2] += Ly
+        if(b1[3] > Lz/2.0)        b1[3] -= Lz
+        else if(b1[3] < -Lz/2.0)  b1[3] += Lz
+    }
+    
+    function Ld(f) {
+        return sqrt(f[1] * f[1] + f[2] * f[2] + f[3] * f[3])
+    }
+    
+    function abs(m) {
+        if(m>=0) 
+        return m
+        else
+        return -m
+    }
+    
+    function pow(a, b) {
+        q=1
+        for(i=1; i<=b; i++) {
+            q = q * a
+        }
+        return q
+    }
+' > f3.txt

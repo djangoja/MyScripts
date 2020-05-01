@@ -1,0 +1,58 @@
+#!/bin/bash
+# A script for modifying a Single  amino acid into ALA, source code from a perl script of gmxpbsatool
+# See article: [ GMXPBSA 2.1: A GROMACS tool to perform MM/PBSA and computational alanine scanning ]
+
+############################################################################
+#                     Author : Rewritten by Yujie Liu                      #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.03.10                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Usage() {
+    echo -e "
+DESCRIPTION: 
+    A script for modifying a single amino acid into ALA, source code from a perl script of gmxpbsatool
+    See artcle: [ GMXPBSA 2.1: A GROMACS tool to perform MM/PBSA and computational alanine scanning ]
+    
+Usage:
+    Format:
+        bash $0 <inputpdbfile> <residue name> <residue number> <residue name> <outpdbfile>
+        
+    Example:
+        bash $0 A.pdb PHE 3 ALA B.pdb
+    This command will change phenylalanine that No. 3 located in A.pdb into alanine, 
+    and save in B.pdb file
+    
+    Next, you can use 'gmx pdb2gmx -f B.pdb -ignh' to generate topology file
+    "
+}
+
+[[ $# -lt 5 ]] && { Usage; exit; }
+
+inpdbfile=$1
+resstart=$2
+resnumber=$3
+resfinal=$4
+outpdbfile=$5
+
+awk '
+    BEGIN {
+        resstart="'$resstart'"; resnumber="'$resnumber'"+0; resfinal="'$resfinal'"
+    }
+    /^ATOM/ {
+        split($0, array, / +/)
+        if((array[4] == resstart) && ((array[6] == resnumber) || (array[5] ~ resnumber))) {
+            if(array[3] == "C" || array[3] == "O" || array[3] == "N" || array[3] == "H"\
+               || array[3] == "CA" || array[3] == "CB") {
+                sub(resstart, resfinal)
+                print
+            }
+        }
+        else {
+            print
+        }
+    }
+    
+' $inpdbfile > $outpdbfile

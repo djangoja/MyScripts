@@ -1,0 +1,68 @@
+#!/bin/bash
+# A script for calculating each Structure percentage by reading stride output file.
+
+############################################################################
+#                     Author : Written by Yujie Liu                        #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.04.20                              #
+############################################################################
+
+Usage() {
+    echo "
+    Usage:
+        $0     stride_outputfile
+    "
+}
+
+[[ $# -lt 1 ]] && { Usage; exit; }
+
+awk '
+    BEGIN {
+        nr = 0; temp = 0; Chain = 1;
+    }
+    
+    # E   B-Sheet
+    # B/b Isolated bridge
+    # T   Turn
+    # I   PI-helix
+    # H   Alpha helix
+    # G   3-10 helix
+    # C   Coil (none of the above)
+    /Residue/ && /Phi/ {
+        while(getline > 0) {
+            if((temp != 0) && (substr($0, 12, 4)+0 != temp+1)) {Chain++}
+            temp = substr($0, 12, 4)+0
+            ssbuff[nr] = substr($0, 25, 1)
+            nr++
+        }
+    }
+    
+    END {
+        for(i = 0;  i < nr; i ++) {
+            if(ssbuff[i] == "E") {isE++}
+            if(ssbuff[i] == "B" || ssbuff[i] == "b") {isB++}
+            if(ssbuff[i] == "T") {isT++}
+            if(ssbuff[i] == "H") {isH++}
+            if(ssbuff[i] == "G") {isG++}
+            if(ssbuff[i] == "I") {isI++}
+            if(ssbuff[i] == "C") {isCoil++}
+        }
+        Nres = nr
+        printf("\nThis Protein has %2d Chains,\n"\
+               "Total Number of Residue is %4d,\n"\
+               "Each Structure percentage as follows:\n\n",
+                Chain, Nres)
+        PrintS("B-Sheet", isE/Nres)
+        PrintS("B-Bridge", isB/Nres)
+        PrintS("PI-helix", isI/Nres)
+        PrintS("Turn", isT/Nres)
+        PrintS("A-helix", isH/Nres)
+        PrintS("3-10 helix", isG/Nres)
+        PrintS("Coil", isCoil/Nres)
+    }
+    
+    function PrintS(Term, Value) {
+        printf("%10s is: %8.3f%\n", Term, Value*100)
+    }
+' $1

@@ -1,0 +1,74 @@
+#!/bin/bash
+# A script for calculating each Structure percentage by reading dssp output file.
+
+############################################################################
+#                     Author : Written by Yujie Liu                        #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.04.20                              #
+############################################################################
+
+Usage() {
+    echo "
+    Usage:
+        $0    dssp_outputfile
+    "
+}
+
+[[ $# -lt 1 ]] && { Usage; exit; }
+
+awk '
+    BEGIN {
+        nr = 0
+    }
+    
+    # E B-Sheet
+    # B B-Bridge
+    # S Bend
+    # T Turn
+    # H A-Helix
+    # G 3-Helix
+    # = Chain separator
+    # ~ Coil
+    /KAPPA/ {
+        while(getline > 0) {
+            if(substr($0, 14, 1) == "!") { # ! is Chain separator
+                SSTP = "="
+            } 
+            else {
+                SSTP = (substr($0, 17, 1) == " " ? "~" : substr($0, 17, 1))
+            }
+            ssbuff[nr] = SSTP
+            nr++
+        }
+    }
+    
+    END {
+        for(i = 0;  i < nr; i ++) {
+            if(ssbuff[i] == "E") {isE++}
+            if(ssbuff[i] == "B") {isB++}
+            if(ssbuff[i] == "S") {isS++}
+            if(ssbuff[i] == "T") {isT++}
+            if(ssbuff[i] == "H") {isH++}
+            if(ssbuff[i] == "G") {isG++}
+            if(ssbuff[i] == "~") {isCoil++}
+            if(ssbuff[i] == "=") {No++}
+        }
+        Nres = nr - No
+        printf("\nThis Protein has %2d Chains,\n"\
+               "Total Number of Residue is %4d,\n"\
+               "Each Structure percentage as follows:\n\n",
+                No+1, Nres)
+        PrintS("B-Sheet", isE/Nres)
+        PrintS("B-Bridge", isB/Nres)
+        PrintS("Bend", isS/Nres)
+        PrintS("Turn", isT/Nres)
+        PrintS("A-Helix", isH/Nres)
+        PrintS("3-Helix", isG/Nres)
+        PrintS("Coil", isCoil/Nres)
+    }
+    
+    function PrintS(Term, Value) {
+        printf("%10s is: %8.3f%\n", Term, Value*100)
+    }
+' $1

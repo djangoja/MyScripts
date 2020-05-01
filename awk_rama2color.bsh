@@ -1,0 +1,196 @@
+#!/bin/bash
+# A script for making a ramachandran plot colored by occupancy
+# It reads rama.xvg and produce rama.xpm which can be converted to ps with xpm2ps
+
+############################################################################
+#                     Author : Rewritten by Yujie Liu                      #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.03.08                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Description() {
+    echo -e "
+>>DESCRIPTION: 
+    First, $0 calculates the occupancy of a given PHI-PSI combination.
+    Then, the occupancy values are scaled between 0-100 where 100 is the maximum
+    occupancy in the analyzed region. And last, ten colors are assigned to the
+    occupancy values which are greater than -min but smaller than -max.
+    "
+}
+
+Usage() {
+    echo "
+    Usage: $0 Options
+        -h      Show help information
+        -i      Input, rama.xvg file
+        -phi0   The initial PHI value to plot(default: -180)
+        -phi1   The final   PHI value to plot(default: 180)
+        -psi0   The initial PSI value to plot(default: -180)
+        -psi1   The final   PSI value to plot(default: 180)
+        -deg    The wide of the bin to calculate the occupancy(default: 4)
+        -min    Values smaller than min are colored white(default: 0)
+        -max    Values greater than max are colored black(default: 100)
+    "
+}
+
+#+++++++++++++++++++++++++++DEFAULT PARAMETERS+++++++++++++++++++++++++#
+phi0=-180
+phi1=180
+psi0=-180
+psi1=180
+deg=4
+min=0
+max=100
+filename=
+
+InputParms() {
+    printf "Input Parameters:\n"
+    printf "\tUsing phi0: %i\n" $phi0
+    printf "\tUsing phi1: %i\n" $phi1
+    printf "\tUsing psi0: %i\n" $psi0
+    printf "\tUsing psi1: %i\n" $psi1
+    printf "\tUsing deg : %i\n" $deg 
+    printf "\tUsing min : %i\n" $min 
+    printf "\tUsing max : %i\n" $max 
+}
+
+[[ $# -lt 1 ]] && { Description; exit 1; }
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h ]] && { Usage; exit 2; }
+    [[ $arg =~ -i ]]  && { filename=${options[$j]}; }
+    [[ $arg =~ -phi0 ]]  && { phi0=${options[$j]}; }
+    [[ $arg =~ -phi1 ]]  && { phi1=${options[$j]}; }
+    [[ $arg =~ -psi0 ]]  && { psi0=${options[$j]}; }
+    [[ $arg =~ -psi1 ]]  && { psi1=${options[$j]}; }
+    [[ $arg =~ -deg ]]  && { deg=${options[$j]}; }
+    [[ $arg =~ -min ]]  && { min=${options[$j]}; }
+    [[ $arg =~ -max ]]  && { max=${options[$j]}; }
+done
+
+if [[ $max -gt 100 ]] || [[ $min -gt 100 ]] || [[ $min -lt 0 ]] || [[ $max -lt 0 ]]; then
+    printf "Error:  -min or -max outside of bounds\n"
+    exit 1
+fi
+
+if [[ ! -f "$filename" ]]; then
+    printf "File %s not found!\n" $filename
+    exit 1
+fi
+
+InputParms
+
+################################MAIN FUNCTION###########################
+awk '
+    BEGIN {
+        phi0 = "'$phi0'"+0; phi1 = "'$phi1'"+0; psi0 = "'$psi0'"+0; psi1 = "'$psi1'"+0
+        deg = "'$deg'"+0; min = "'$min'"+0; max = "'$max'"+0
+        filename = "'$filename'"
+        count = 0; nphi = (phi1 - phi0) / deg; npsi = (psi1 - psi0) / deg
+        for (j = 1; j <= npsi; j++) {
+            for (i = 1; i <= nphi; i++) {
+                bin[i, j] = 0
+            }
+        }
+        
+        while(getline < filename > 0) {
+            if($0!~/^[@\#&]/) {
+               phi = $1; psi = $2
+               if ((phi >= phi0) && (phi < phi1) && (psi >= psi0) && (psi < psi1)) {
+                    for ( i = 1; i <= nphi; i++) {
+                        if ((phi > (phi0 + (i - 1) * deg)) && (phi <= (phi0 + i * deg))) {
+                            in_phi = i
+                            break
+                        }
+                    }
+                    for ( j = 1; j <= npsi; j++) {
+                        if ((psi > (psi0 + (j - 1) * deg)) && (psi <= (psi0 + j * deg))) {
+                            in_psi = j
+                            break
+                        }
+                    }
+                    bin[in_phi, in_psi]++
+                    #printf("%d %d %d\n", bin[in_phi, in_psi], in_phi, in_psi)
+                }
+                count++
+            }
+        }
+        close(filename)
+        
+        bmax=0
+        for (j = npsi; j >= 1; j--) {
+            for (i = 1; i <= nphi; i++) {
+                if (bin[i, j] > bmax)
+                bmax = bin[i, j]
+            }
+        }
+        
+        for (j = npsi; j >= 1; j--) {
+            for (i = 1; i <= nphi; i++) {
+                bin[i, j]= 100.0 - 100.0 * ((bmax-bin[i, j])/bmax)
+            }
+        }
+        
+        dc = (max - min) / 10.0
+        for (k = 0; k <= 9; k++) {
+            color[k] = k*dc+min;    
+        }
+        
+        PrintXpm()
+        for (j = npsi; j >= 1; j--) {
+            printf("\"")
+            for (i = 1; i <= nphi; i++) {
+                for (k=0; k<=9; k ++) {
+                    if (bin[i, j] < min) {
+                        printf("w")
+                        break
+                    }
+                    if (bin[i, j] >= max) {
+                        printf("b")
+                        break
+                    }
+                    if ((bin[i, j] >= (k*dc)+min) && (bin[i, j] < ((k+1)*dc)+min)) {
+                        printf("%i",k)
+                        break
+                    }
+                }
+            }
+            printf("\",\n")
+        }
+    }
+    
+    function PrintXpm() {
+        printf("/* XPM */\n")
+        printf("/* title:   \"Ramachandran Plot\" */\n")
+        printf("/* legend:  \"\" */\n")
+        printf("/* x-label: \"Phi\" */\n")
+        printf("/* y-label: \"Psi\" */\n")
+        printf("/* type:    \"Discrete\" */\n")
+        printf("static char *gromacs_xpm[] = {\n")
+        printf("\"%i %i  12 1\",\n",nphi,npsi)
+        printf("\"w  c #FFFFFF\" /* \"<%i\" */,\n",min)
+        printf("\"0  c #FF0000\" /* \"%i-%-i\" */,\n",color[0],color[1])
+        printf("\"1  c #FF7000\" /* \"%i-%-i\" */,\n",color[1],color[2])
+        printf("\"2  c #FF9900\" /* \"%i-%-i\" */,\n",color[2],color[3])
+        printf("\"3  c #FFFF00\" /* \"%i-%-i\" */,\n",color[3],color[4])
+        printf("\"4  c #99FF00\" /* \"%i-%-i\" */,\n",color[4],color[5])
+        printf("\"5  c #00FF00\" /* \"%i-%-i\" */,\n",color[5],color[6])
+        printf("\"6  c #00FF99\" /* \"%i-%-i\" */,\n",color[6],color[7])
+        printf("\"7  c #00FFFF\" /* \"%i-%-i\" */,\n",color[7],color[8])
+        printf("\"8  c #0080FF\" /* \"%i-%-i\" */,\n",color[8],color[9])
+        printf("\"9  c #0000FF\" /* \"%i-%-i\" */,\n",color[9],max)
+        printf("\"b  c #000000\" /* \">%i\" */,\n",max)
+        printf("/* x-axis: ")
+        for (i= 1; i<= nphi ; i++) 
+            printf("%i ", phi0+(i-1)*deg)
+        printf("*/\n")
+        printf("/* y-axis: ")
+        for (i= 1; i<= npsi ; i++)
+            printf("%i ", psi0+(i-1)*deg)
+        printf("*/\n")
+        
+    }
+' > rama.xpm

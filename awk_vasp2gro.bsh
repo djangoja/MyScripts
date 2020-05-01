@@ -1,0 +1,40 @@
+#!/bin/bash
+# A script for translating vasp XDATCAR file into gro file
+
+File=XDATCAR
+awk -v file=$File '
+	BEGIN {
+		getline<file; Tips=$0
+		getline<file; a=$1/10; b=a; c=a;
+		if(NF>=2) b=$2/10; if(NF>=3) c=$3/10
+		getline<file; ax=$1*a; ay=$2*b; az=$3*c
+		getline<file; bx=$1*a; by=$2*b; bz=$3*c
+		getline<file; cx=$1*a; cy=$2*b; cz=$3*c
+		Natm=0
+		getline<file; Nelm=NF; for(i=1; i<=Nelm; i++) Sym[i]=$i
+		getline<file; for(i=1; i<=Nelm; i++) { Numb[i]=$i; Natm=Natm+$i }
+		close(file)
+	}
+
+	/.+=/ {
+		step=$NF
+		YesCar=0; if($0~/^[::space::]*[C|c]/) YesCar=1
+
+		printf("%sstep = %d\n", Tips, step)
+		printf("%d\n", Natm)
+		n=0
+		for(i=1; i<=Nelm; i++) {
+			for(j=1; j<=Numb[i]; j++) {
+				getline; n++
+				x=$1/10; y=$2/10; z=$3/10
+				if(!YesCar) {
+					x=ax*$1+ay*$2+az*$3
+					y=bx*$1+by*$2+bz*$3
+					z=cx*$1+cy*$2+cz*$3
+				}
+				printf("%8s%7s%5d%8.3f%8.3f%8.3f\n", i"NAM", Sym[i], n, x, y, z)
+			}
+		}
+		printf("%8.3f%8.3f%8.3f%8.3f%8.3f%8.3f%8.3f%8.3f%8.3f\n", ax, by, cz, ay, az, bx, bz, cx, cy)
+		}
+' $File  > $File.gro

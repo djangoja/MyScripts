@@ -1,0 +1,172 @@
+#!/bin/bash
+# A bash script for calculating F4 of three simple points water model
+# Usage: echo 0 |gmx trjconv -f -s -n -b 1 -e 1 -sep -o traj.gro -exec "bash F4.bsh"
+
+conf=traj$1
+awk -v file=$conf.gro -v RS="\r?\n" -v PI=3.141592653 -v i=0 -v n=0 \
+    -v cy=0 '
+    BEGIN {getline<file; getline<file; atom=$1
+        while(getline<file) {
+            Aname[i]=substr($0, 11, 5); x[i]=substr($0, 21, 8)+ 0;
+            y[i]=substr($0, 29, 8)+ 0; z[i]=substr($0, 37, 8)+ 0;
+            i++
+        }
+        if(getline<file==0) {
+            Lx=$1; Ly=$2; Lz=$3;
+            #print Lx, Ly, Lz
+        }
+        close(file)
+        
+        for(ii = 0; ii < atom; ii+=3) {
+            for(jj = 0; jj < atom; jj+=3) {
+                d[1] = x[ii] - x[jj]
+                d[2] = y[ii] - y[jj]
+                d[3] = z[ii] - z[jj]
+                applmic(d, Lx, Ly, Lz)
+                dist = Ld(d)
+                if(dist < 0.35 && dist >0) {
+                    N[n] = jj
+                    n++
+                }
+            }
+            
+            for(k = 0; k < n; k++) {
+                r1[1] = x[ii+1] - x[N[k]+1]
+                r1[2] = y[ii+1] - y[N[k]+1]
+                r1[3] = z[ii+1] - z[N[k]+1]
+                applmic(r1, Lx, Ly, Lz)
+                
+                r2[1] = x[ii+1] - x[N[k]+2]
+                r2[2] = y[ii+1] - y[N[k]+2]
+                r2[3] = z[ii+1] - z[N[k]+2]
+                applmic(r2, Lx, Ly, Lz)
+                
+                r3[1] = x[ii+2] - x[N[k]+1]
+                r3[2] = y[ii+2] - y[N[k]+1]
+                r3[3] = z[ii+2] - z[N[k]+1]
+                applmic(r3, Lx, Ly, Lz)
+                
+                r4[1] = x[ii+2] - x[N[k]+2]
+                r4[2] = y[ii+2] - y[N[k]+2]
+                r4[3] = z[ii+2] - z[N[k]+2]
+                applmic(r4, Lx, Ly, Lz)
+                
+                dist1 = Ld(r1)
+                dist2 = Ld(r2)
+                dist3 = Ld(r3)
+                dist4 = Ld(r4)
+                
+                distmax = -1
+                distmax = dist1 > distmax? dist1 : distmax
+                distmax = dist2 > distmax? dist2 : distmax
+                distmax = dist3 > distmax? dist3 : distmax
+                distmax = dist4 > distmax? dist4 : distmax
+                if(abs(distmax - dist1) < 1e-5) {
+                    h1 = ii + 1
+                    h2 = N[k] + 1
+                } else if(abs(distmax - dist2) < 1e-5) {
+                    h1 = ii + 1
+                    h2 = N[k] + 2
+                } else if(abs(distmax - dist3) < 1e-5) {
+                    h1 = ii + 2
+                    h2 = N[k] + 1
+                } else {
+                    h1 = ii + 2
+                    h2 = N[k] + 2
+                }
+                
+                a_b[1] = x[ii] - x[h1]
+                a_b[2] = y[ii] - y[h1]
+                a_b[3] = z[ii] - z[h1]
+                applmic(a_b, Lx, Ly, Lz)
+                
+                b_c[1] = x[N[k]] - x[ii]
+                b_c[2] = y[N[k]] - y[ii]
+                b_c[3] = z[N[k]] - z[ii]
+                applmic(b_c, Lx, Ly, Lz)
+                
+                c_d[1] = x[h2] - x[N[k]]
+                c_d[2] = y[h2] - y[N[k]]
+                c_d[3] = z[h2] - z[N[k]]
+                applmic(c_d, Lx, Ly, Lz)
+                
+                CrossProduct(a_b, b_c, n1)
+                VectorNormalisation(n1)
+                CrossProduct(b_c, c_d, n2)
+                VectorNormalisation(n2)
+                
+                x1 = DotProduct(n1, c_d)
+                ca = DotProduct(n1, n2)
+                if(ca <= 1.0 && ca >= -1.0) {
+                    angle = 180.0/PI * acos(ca)
+                    if(x1 != 0) {
+                        angle = angle * (x1 > 0 ? 1 : -1)
+                    }
+                    f4 += cos(3*angle*PI/180)
+                    #printf("%f\n", angle)
+                    cy++
+                    count++
+                }
+            }
+            printf("%f\n", f4/cy)
+            ff4 += f4
+            n  = 0
+            cy = 0
+            f4 = 0
+        }
+        #printf("%f\n", ff4/count)
+    }
+    
+    function acos(s) {
+        return atan2(sqrt(1.-s^2), s)
+    }
+
+    function applmic(b1, Lx, Ly, Lz) {
+        if(b1[1] > Lx/2.0)        b1[1] -= Lx
+        else if(b1[1] < -Lx/2.0)  b1[1] += Lx
+        if(b1[2] > Ly/2.0)        b1[2] -= Ly
+        else if(b1[2] < -Ly/2.0)  b1[2] += Ly
+        if(b1[3] > Lz/2.0)        b1[3] -= Lz
+        else if(b1[3] < -Lz/2.0)  b1[3] += Lz
+    }
+    
+    function Ld(f) {
+        return sqrt(f[1] * f[1] + f[2] * f[2] + f[3] * f[3])
+    }
+    
+    function CrossProduct(v, w, cross) {
+        cross[1] = v[2] * w[3] - v[3] * w[2]
+        cross[2] = v[3] * w[1] - v[1] * w[3]
+        cross[3] = v[1] * w[2] - v[2] * w[1]
+    }
+    
+    function sqr(g) {
+        return g * g
+    }
+    
+    function DotProduct(v1, w1) {
+        return (v1[1] * w1[1] + v1[2] * w1[2] + v1[3] * w1[3])
+    }
+    
+    function VectorNormalisation(v2) {
+        ll = sqrt(sqr(v2[1]) + sqr(v2[2]) + sqr(v2[3]))
+        v2[1] /= ll
+        v2[2] /= ll
+        v2[3] /= ll
+    }
+    
+    function abs(m) {
+        if(m>=0) 
+        return m
+        else
+        return -m
+    }
+    
+    function pow(a, b) {
+        q=1
+        for(i=1; i<=b; i++) {
+            q = q * a
+        }
+        return q
+    }
+' > f4.txt

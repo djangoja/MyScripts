@@ -1,0 +1,330 @@
+#!/bin/bash
+# A bash script for decomposing residues Energy from the output of g_mmpbsa,
+# original source(MmPbSaDecomp.py) from Rashmi Kumari and Andrew Lynn
+
+############################################################################
+#                     Author : Rewritten by Yujie Liu                      #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.1                                #
+#                           Date : 2020.02.12                              #
+#          Update Date : 2020.02.16, add residue EE and VDW Energy         #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Usage() {
+    echo "
+    Usage: $0 Options
+        -h    Show help information
+        -m    Input, Vacuum Molecular Mechanics energy file obtained from g_mmpbsa(default: contrib_MM.dat)
+        -p    Input, Polar solvation energy file obtained from g_mmpbsa(default: contrib_pol.dat)
+        -e    Input, (Option)Electrostatic energy file obtained from g_mmpbsa(default: contrib_EE.dat)
+        -v    Input, (Option)Van der Waals energy file obtained from g_mmpbsa(default: contrib_VDW.dat)
+        -a    Input, Non-Polar solvation energy file obtained from g_mmpbsa(default: contrib_apol.dat)
+        -bs   If given, Enable Boot Strap analysis
+        -nbs  Vaule, Number of boot strap steps for average energy calculation (default: 500)
+        -ct   Value, Absolute Cutoff: energy output above and below this value(default: 999)
+        -o    Output, Final Decomposed Energy File(default: final_contrib_energy.dat)
+        -om   Output, energy2bfac input file: to map energy on structure for visualization(default: energyMapIn.dat)
+    "
+}
+#+++++++++++++++++++++++++++DEFAULT PARAMETERS+++++++++++++++++++++++++#
+molmech=contrib_MM.dat
+elec=
+vdw=
+polar=contrib_pol.dat
+apolar=contrib_apol.dat
+bootstrap=0
+nbstep=500
+cutoff=999
+output=final_contrib_energy.dat
+outmap=energyMapIn.dat
+
+[[ $# -lt 1 ]] && { Usage; exit 1; }
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h ]] && { Usage; exit 2; }
+    [[ $arg =~ -m ]]  && { molmech=${options[$j]}; }
+    [[ $arg =~ -p ]]  && { polar=${options[$j]}; }
+    [[ $arg =~ -a ]]  && { apolar=${options[$j]}; }
+    [[ $arg =~ -e ]]  && { elec=${options[$j]}; }
+    [[ $arg =~ -v ]]  && { vdw=${options[$j]}; }
+    [[ $arg =~ -bs ]] && { bootstrap=1; }
+    [[ $arg =~ -nbs ]] && { nbstep=${options[$j]}; }
+    [[ $arg =~ -ct ]]  && { cutoff=${options[$j]}; }
+    [[ $arg =~ -o$ ]]  && { output=${options[$j]}; }
+    [[ $arg =~ -om$ ]]  && { outmap=${options[$j]}; }
+done
+
+awk '
+    BEGIN {
+        RS = "\r?\n"
+        molmech="'$molmech'"; elec="'$elec'"; vdw="'$vdw'"
+        polar="'$polar'"; apolar="'$apolar'"; bootstrap="'$bootstrap'"+0; 
+        nbstep="'$nbstep'"+0; cutoff="'$cutoff'"+0; output="'$output'"; outmap="'$outmap'"
+        
+        #=======================READ FILE===============================#
+        MM   = ReadData(molmech, data1, resnameA)
+        Pol  = ReadData(polar, data2, resnameB)
+        APol = ReadData(apolar, data3, resnameC)
+        if(elec)
+            Elec = ReadData(elec, data4, resnameD)
+        if(vdw)
+            VDW  = ReadData(vdw, data5, resnameE)
+        #++++++++++++++++++++++CHECK ERROR++++++++++++++++++++++++++++++#
+        CheckResname(resnameA, resnameB, resnameC, resname)
+        CheckEnData(MM, Pol, APol)
+        printf("Total number of Residue: %d\n", length(resname))
+        line = length(resname)
+        cloum = MM
+        
+        #+++++++++++++++++++++++CALCULATE ENERGY++++++++++++++++++++++++#
+        CalcEnergy(data1, data2, data3, line, cloum, bootstrap, nbstep,\
+                   FinalMM, FinalPol, FinalAPol, TotalEn)
+        
+        #+++++++++++++++++++++++++WRITE DATA++++++++++++++++++++++++++++#
+        for(i = 0; i < line; i++) {
+            printf(" %8s %8.4f %8.4f\n", resname[i], TotalEn[i, 0], TotalEn[i, 1])
+        }
+        
+        printf("#Residues  MM Energy(+/-)dev/error  EE Energy(+/-)dev/error  VDW Energy(+/-)dev/error  Polar Energy(+/-)dev/error APolar"\
+               "Energy(+/-)dev/error Total Energy(+/-)dev/error\n") > output
+        FMT="%-8s %10.4f %4.4f %10.4f %4.4f %10.4f %4.4f %10.4f %4.4f %10.4f %4.4f %10.4f %4.4f \n"
+        FMT1="%-8s %10.4f %4.4f %10s %4s %10s %4s %10.4f %4.4f %10.4f %4.4f %10.4f %4.4f \n"
+        #++++++++++++++++++++IF HVAE EE && VDW DATA FILE+++++++++++++++#
+        if(Elec && VDW) {
+            for(i = 0; i < line; i++) {
+                if(cutoff == 999) {
+                    printf(FMT, resname[i], FinalMM[i, 0], FinalMM[i, 1], FinalEE[i, 0], FinalEE[i, 1],
+                           FinalVDW[i, 0], FinalVDW[i, 1], FinalPol[i, 0], FinalPol[i, 1],
+                           FinalAPol[i, 0], FinalAPol[i, 1], TotalEn[i, 0], TotalEn[i, 1]) >> output
+                }
+                else if(cutoff <= TotalEn[i, 0] || (-1)*cutoff >= TotalEn[i, 0]) {
+                    printf(FMT, resname[i], FinalMM[i, 0], FinalMM[i, 1], FinalEE[i, 0], FinalEE[i, 1],
+                           FinalVDW[i, 0], FinalVDW[i, 1], FinalPol[i, 0], FinalPol[i, 1],
+                           FinalAPol[i, 0], FinalAPol[i, 1], TotalEn[i, 0], TotalEn[i, 1]) >> output
+                }
+                printf("%-8d %10.4f \n", i + 1, TotalEn[i, 0]) > outmap
+            }
+        }
+        #++++++++++++++++++++++NORMAL WRITE+++++++++++++++++++++++++++++#
+        else {
+            for(i = 0; i < line; i++) {
+                if(cutoff == 999) {
+                    printf(FMT1, resname[i], FinalMM[i, 0], FinalMM[i, 1], "NA", "NA", "NA", "NA", 
+                           FinalPol[i, 0], FinalPol[i, 1], FinalAPol[i, 0], FinalAPol[i, 1], 
+                           TotalEn[i, 0], TotalEn[i, 1]) >> output
+                }
+                else if(cutoff <= TotalEn[i, 0] || (-1)*cutoff >= TotalEn[i, 0]) {
+                    printf(FMT1, resname[i], FinalMM[i, 0], FinalMM[i, 1], "NA", "NA", "NA", "NA", 
+                           FinalPol[i, 0], FinalPol[i, 1], FinalAPol[i, 0], FinalAPol[i, 1], 
+                           TotalEn[i, 0], TotalEn[i, 1]) >> output
+                }
+                printf("%-8d %10.4f \n", i + 1, TotalEn[i, 0]) > outmap
+            }
+        }
+    }
+    
+    #=========================FUNCTION DEFINED==========================#
+    #+++++++++++++++++++++++++CALCULATE ENERGY++++++++++++++++++++++++++#
+    function CalcEnergy(MMdata, Poldata, APoldata, line, cloum, bootstrap, nbstep,\
+                        FinalMM, FinalPol, FinalAPol, TotalEn) {
+        for(m = 0; m < line; m++) {
+            for(j = 0; j < cloum; j++) {
+                MMEnData[j]   = MMdata[m, j]
+                if(Elec)
+                    EEEnData[j] = data4[m, j]
+                if(VDW)
+                    VDWEnData[j] = data5[m, j]
+                polEnData[j]  = Poldata[m, j]
+                apolEnData[j] = APoldata[m, j]
+                TotalEn1[j] = MMdata[m, j] + Poldata[m, j] + APoldata[m, j]
+            }
+            if(bootstrap == 1) {
+                BootStrap(MMEnData, nbstep, out)
+                FinalMM[m, 0] = out[0]
+                FinalMM[m, 1] = out[1]
+                
+                if(Elec) {
+                    BootStrap(EEEnData, nbstep, out)
+                    FinalEE[m, 0] = out[0]
+                    FinalEE[m, 1] = out[1]
+                }
+                
+                if(VDW) {
+                    BootStrap(VDWEnData, nbstep, out)
+                    FinalVDW[m, 0] = out[0]
+                    FinalVDW[m, 1] = out[1]
+                }
+                
+                BootStrap(polEnData, nbstep, out)
+                FinalPol[m, 0] = out[0]
+                FinalPol[m, 1] = out[1]
+                
+                if(Mean(apolEnData) == 0) {
+                    FinalAPol[m, 0] = 0.0
+                    FinalAPol[m, 1] = 0.0
+                }
+                else {
+                    BootStrap(apolEnData, nbstep, out)
+                    FinalAPol[m, 0] = out[0]
+                    FinalAPol[m, 1] = out[1]
+                }
+                BootStrap(TotalEn1, nbstep, out)
+                TotalEn[m, 0] = out[0]
+                TotalEn[m, 1] = out[1]
+            }
+            else {
+                FinalMM[m, 0] = Mean(MMEnData)
+                FinalMM[m, 1] = Std(MMEnData)
+                if(Elec) {
+                    FinalEE[m, 0] = Mean(EEEnData)
+                    FinalEE[m, 1] = Std(EEEnData)
+                }
+                if(VDW) {
+                    FinalVDW[m, 0] = Mean(VDWEnData)
+                    FinalVDW[m, 1] = Std(VDWEnData)
+                }
+                FinalPol[m, 0] = Mean(polEnData)
+                FinalPol[m, 1] = Std(polEnData)
+                if(Mean(apolEnData) == 0) {
+                    FinalAPol[m, 0] = 0.0
+                    FinalAPol[m, 1] = 0.0
+                }
+                else {
+                    FinalAPol[m, 0] = Mean(apolEnData)
+                    FinalAPol[m, 1] = Std(apolEnData)
+                }
+                TotalEn[m, 0] = Mean(TotalEn1)
+                TotalEn[m, 1] = Std(TotalEn1)
+            }
+        }
+
+    }
+    #++++++++++++++++++++++++++BootStrap Method+++++++++++++++++++++++++#
+    function BootStrap(x, step, out1) {
+        srand()
+        n = length(x)
+        for(i = 0; i < step; i++) {
+            sum[i] = 0
+            for(j = 0; j < n; j++) {
+                idx1 = int(rand()*n)
+                sample_x = x[idx1]
+                sum[i] += sample_x
+            }
+            avg[i] = sum[i]/n
+        }
+        sort(avg)
+        out1[0] = Mean(avg)
+        out1[1] = Std(avg)
+    }
+    
+    #++++++++++++++++++++++++GENERAL FUNCTION+++++++++++++++++++++++++++#
+    function Mean(x1) {
+        sum2 = 0; j = 0
+        for(i in x1) {
+            sum2 += x1[i]
+            j++
+        }
+        return sum2/j
+    }
+    
+    function sort(x2) {
+        for(i = 0; i < length(x2); i++){
+            temp[i + 1] = x2[i]
+        }
+        asort(temp)
+        for(i = 1; i <= length(temp); i++){
+            x2[i - 1] = temp[i]
+        }
+    }
+    
+    function Std(x3) {
+        s2 = 0
+        mean = Mean(x3)
+        for(i = 0; i < length(x3); i++) {
+            s2 += (x3[i] - mean)^2
+        }
+        s2 = s2 / i
+        return s2^(1/2)
+    }
+    #+++++++++++++++++++++++++CHECK ERROR+++++++++++++++++++++++++++++++#
+    function CheckResname(Ra, Rb, Rc, Rt, _ARGVEND_, i) {
+        if(length(Ra) != length(Rb))
+            ValueError("residues", "MM", "Polar")
+        if(length(Rb) != length(Rc))
+            ValueError("residues", "Polar", "Apolar")
+        if(length(Rc) != length(Ra))
+            ValueError("residues", "MM", "Apolar")
+        for(i = 0; i < length(Ra); i++) {
+            if(Ra[i] != Rb[i]) {
+                printf("Residue mismatch at index %d: MM -> %s =/= %s <- Polar .\n",
+                        i, Ra[i], Rb[i])
+                exit 3
+            }
+        }
+        for(i = 0; i < length(Rb); i++) {
+            if(Rb[i] != Rc[i]) {
+                printf("Residue mismatch at index %d: Polar -> %s =/= %s <- Polar .\n",
+                        i, Rb[i], Rc[i])
+                exit 4
+            }
+        }
+        for(i = 0; i < length(Rc); i++) {
+            if(Ra[i] != Rc[i]) {
+                printf("Residue mismatch at index %d: MM -> %s =/= %s <- APolar .\n",
+                        i, Ra[i], Rc[i])
+                exit 5
+            }
+        }
+        for(i = 0; i < length(Ra); i++) {
+            Rt[i] = Ra[i]
+        }
+    }
+    
+    function ValueError(Term, T1, T2) {
+        printf("Total number of %s mismatch between %s and %s input files\n",
+                Term, T1, T2)
+        exit 6
+    }
+    
+    function CheckEnData(a, b, c) {
+        if(a != b) 
+            ValueError("Frame numbers", "MM", "Polar")
+        if(b != c) 
+            ValueError("Frame numbers", "Polar", "Apolar")
+        if(c != a) 
+            ValueError("Frame numbers", "MM", "Apolar")
+    }
+    #+++++++++++++++++++++++++READ FUNCTION+++++++++++++++++++++++++++++#
+    function ReadData(FileName, data, resname2, _ARGVEND_, i, j) { #i, j is local variable
+       CheckFile(FileName)
+       i = 0
+       while(getline < FileName > 0) {
+            if($0!~/[@#]/) {
+                for(j = 0; j < NF - 1; j++) {
+                    data[j, i] = $(j + 2)
+                }
+                i++
+            }
+            if($0~/#/) {
+                gsub("#", "")
+                gsub("Time", "")
+                split($0, resname1)
+            }
+        }
+        close(FileName)
+        for(j = 1; j <= length(resname1); j++) {
+            resname2[j - 1] = resname1[j]
+        }
+        return i
+    }
+    
+    function CheckFile(file1) {
+        if(getline < file1 < 0) {
+            printf("Error:\n\tInput file(%s) not found! Please check!\n", file1)
+            exit 5
+        }
+        close(file1)
+    }
+'

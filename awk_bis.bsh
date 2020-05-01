@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# A script for solving zero point by bisection method
+
+awk '
+    BEGIN {
+        printf("Zero point is: %.6f\n", bisection(-1000, 1000)) 
+    }
+    
+    function f(x) {
+        return x^3 - 2*x - 5
+    }
+    
+    function bisection(a, b) {
+        start = a; end = b
+        if(f(a) == 0)
+            return a
+        else if(f(b) == 0)
+            return b
+        else if(f(a) * f(b) > 0) {
+            printf("Can not find zero point between [%f, %f]!\n", a, b) 
+            exit 1
+        }
+        else {
+            middle = (end - start)/2.0 + start
+            do {
+                if(f(middle) == 0)
+                    return middle
+                else if(f(middle) * f(start) < 0)
+                    end = middle
+                else
+                    start = middle
+                middle = (end - start)/2.0 + start
+            } while (abs(start - middle) > 1e-7)
+            return middle
+        }
+    }
+    
+    function abs(k) {
+        return k >= 0 ? k : -k
+    }
+'

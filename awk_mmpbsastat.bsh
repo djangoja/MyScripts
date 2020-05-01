@@ -1,0 +1,310 @@
+#!/bin/bash
+# A bash script for extracting Energy from the output of g_mmpbsa,
+# original source(MmPbSaStat.py) from Rashmi Kumari and Andrew Lynn
+
+############################################################################
+#                     Author : Rewritten by Yujie Liu                      #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.02.11                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Usage() {
+    echo "
+    Usage: $0 Options
+        -h    Show help information
+        -mt   If given, calculate for multiple complexes. Need Metafile containing path of energy files(-mf)
+        -mf   Input, Metafile containing path to energy files of each complex in a row obtained from g_mmpbsa in following order: [MM file] [Polar file] [ Non-polar file] (default: metafile.dat)
+        -m    Input, Vacuum Molecular Mechanics energy file obtained from g_mmpbsa(default: energy_MM.xvg)
+        -p    Input, Polar solvation energy file obtained from g_mmpbsa(default: polar.xvg)
+        -a    Input, Non-Polar solvation energy file obtained from g_mmpbsa(default: apolar.xvg)
+        -bs   If given, Enable Boot Strap analysis
+        -nbs  Vaule, Number of boot strap steps for average energy calculation (default: 1000)
+        -of   Output, Energy File: All energy components frame wise (default: full_energy.dat)
+        -os   Output, Final Energy File: Full Summary of energy components (default: summary_energy.dat)
+        -om   Output, Final Energy File for Multiple Complexes: Complex wise final binding nergy (default: meta_energy.dat)
+    "
+}
+#+++++++++++++++++++++++++++DEFAULT PARAMETERS+++++++++++++++++++++++++#
+multiple=0
+metafile=metafile.dat
+molmech=energy_MM.xvg
+polar=polar.xvg
+apolar=apolar.xvg
+bootstrap=0
+nbstep=1000
+outfr=full_energy.dat
+outsum=summary_energy.dat
+outmeta=meta_energy.dat
+
+[[ $# -lt 1 ]] && { Usage; exit 1; }
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h ]] && { Usage; exit 2; }
+    [[ $arg =~ -mt$ ]] && { multiple=1; }
+    [[ $arg =~ -mf$ ]] && { metafile=${options[$j]}; }
+    [[ $arg =~ -m$ ]]  && { molmech=${options[$j]}; }
+    [[ $arg =~ -p ]]  && { polar=${options[$j]}; }
+    [[ $arg =~ -a ]]  && { apolar=${options[$j]}; }
+    [[ $arg =~ -bs ]] && { bootstrap=1; }
+    [[ $arg =~ -nbs ]] && { nbstep=${options[$j]}; }
+    [[ $arg =~ -of ]]  && { outfr=${options[$j]}; }
+    [[ $arg =~ -os ]]  && { outsum=${options[$j]}; }
+    [[ $arg =~ -om ]]  && { outmeta=${options[$j]}; }
+done
+
+awk '
+    BEGIN {
+        RS = "\r?\n"
+        multiple="'$multiple'" + 0; metafile="'$metafile'"
+        molmech="'$molmech'"; polar="'$polar'"; apolar="'$apolar'"; bootstrap="'$bootstrap'" + 0
+        nbstep="'$nbstep'" + 0; frame_wise="'$outfr'"; outsum="'$outsum'"; outmeta="'$outmeta'"
+        printf("#Time E_VdW_mm(Protein)\tE_Elec_mm(Protein)\tE_Pol(Protein)\t" \
+               "E_Apol(Protein)\tE_VdW_mm(Ligand)\tE_Elec_mm(Ligand)\tE_Pol(Ligand)\t" \
+               "E_Apol(Ligand)\tE_VdW_mm(Complex)\tE_Elec_mm(Complex)\tE_Pol(Complex)\t" \
+               "E_Apol(Complex)\tDelta_E_mm\tDelta_E_Pol\tDelta_E_Apol\tDelta_E_binding\n") > frame_wise
+        filenumbers = 0
+        if(multiple == 1) {
+            ReadMetafile(metafile, MmFile, PolFile, APolFile)
+            for(m = 0; m < length(MmFile); m++) {
+                mm = MmFile[m]; polar = PolFile[m]; apolor = APolFile[m]
+                ComplexCalcEnergy(bootstrap, nbstep, mm, polar, apolor, frame_wise, m, SelfVdw, SelfElec, SelfPol, \
+                                  SelfSas, SelfSav, SelfWca, FinalAvgEnergy, StdErr)
+                Complex_SelfVdw[m, 0]  = SelfVdw[0];  Complex_SelfVdw[m, 1]   = SelfVdw[1]
+                Complex_SelfElec[m, 0] = SelfElec[0]; Complex_SelfElec[m, 1]  = SelfElec[1]
+                Complex_SelfPol[m, 0]  = SelfPol[0];  Complex_SelfPol[m, 1]   = SelfPol[1]
+                Complex_SelfSas[m, 0]  = SelfSas[0];  Complex_SelfSas[m, 1]   = SelfSas[1]
+                Complex_SelfSav[m, 0]  = SelfSav[0];  Complex_SelfSav[m, 1]   = SelfSav[1]
+                Complex_SelfWca[m, 0]  = SelfWca[0];  Complex_SelfWca[m, 1]   = SelfWca[1]
+                Complex_FinalAvgEnergy[m, 0]  = FinalAvgEnergy[0]
+                Complex_StdErr[m, 0]          = StdErr[0]
+                filenumbers++
+            }
+            
+        }
+        else {
+            ComplexCalcEnergy(bootstrap, nbstep, molmech, polar, apolar, frame_wise, 0, SelfVdw, SelfElec, SelfPol, \
+                              SelfSas, SelfSav, SelfWca, FinalAvgEnergy, StdErr)
+            Complex_SelfVdw[0, 0]  = SelfVdw[0];  Complex_SelfVdw[0, 1]   = SelfVdw[1]
+            Complex_SelfElec[0, 0] = SelfElec[0]; Complex_SelfElec[0, 1]  = SelfElec[1]
+            Complex_SelfPol[0, 0]  = SelfPol[0];  Complex_SelfPol[0, 1]   = SelfPol[1]
+            Complex_SelfSas[0, 0]  = SelfSas[0];  Complex_SelfSas[0, 1]   = SelfSas[1]
+            Complex_SelfSav[0, 0]  = SelfSav[0];  Complex_SelfSav[0, 1]   = SelfSav[1]
+            Complex_SelfWca[0, 0]  = SelfWca[0];  Complex_SelfWca[0, 1]   = SelfWca[1]
+            Complex_FinalAvgEnergy[0, 0]  = FinalAvgEnergy[0]
+            Complex_StdErr[0, 0]          = StdErr[0]
+            filenumbers = 1
+        }
+        Summary_Output_File(filenumbers, outsum, outmeta)
+    }
+    #=======================FUNCTION DEFINED============================#
+    #+++++++++++++++++++++++READ FILE AND DATA++++++++++++++++++++++++++#
+    function ReadData(FileName, n, data) {
+        i = 0;
+        CheckFile(FileName)
+        while(getline < FileName > 0) {
+            if($0!~/[@#]/) {
+                for(j = 0; j < n; j++) {
+                    data[j, i] = $(j + 1)
+                }
+                i++
+            }
+        }
+        close(FileName)
+        return i
+    }
+    
+    function ReadMetafile(metafile, MmFile, PolFile, APolFile) {
+        i = 0
+        CheckFile(metafile)
+        while(getline < metafile > 0) {
+            MmFile[i]    = $1
+            PolFile[i]   = $2
+            APolFile[i]  = $3
+            i++
+        }
+        close(metafile)
+    }
+    
+    function CheckFile(file1) {
+        if(getline < file1 < 0) {
+            printf("Error:\n\tInput file(%s) not found! Please check!\n", file1)
+            exit 5
+        }
+        close(file1)
+    }
+    
+    #+++++++++++++++++++++++BootStrap Method++++++++++++++++++++++++++++#
+    function BootStrap(x, step, out1, out2) {
+        if(Mean(x) == 0) {
+            out1[0] = 0.0
+            out2[0] = 0.0
+        }
+        else {
+            srand()
+            n = length(x)
+            for(i = 0; i < step; i++) {
+                sum[i] = 0
+                for(j = 0; j < n; j++) {
+                    idx1 = int(rand()*n)
+                    sample_x = x[idx1]
+                    sum[i] += sample_x
+                }
+                avg[i] = sum[i]/n
+            }
+            sort(avg)
+            out1[0] = Mean(avg)
+            out2[0] = Std(avg)
+        }
+    }
+    
+    function ComplexBootStrap(x4, step, avg1, meanavg1, stdavg1, CI1) {
+        srand()
+        n = length(x4)
+        for(i = 0; i < step; i++) {
+            sum1[i] = 0
+            for(j = 0; j < n; j++) {
+                idx2  = int(rand()*n)
+                sample_x   = x4[idx2]
+                sum1[i] += sample_x
+            }
+            avg1[i] = sum1[i]/n
+        }
+        sort(avg1)
+        CI_min   = avg1[int(0.005*step)]
+        CI_max   = avg1[int(0.995*step)]
+        meanavg1[0] = Mean(avg1)
+        stdavg1[0]  = Std(avg1)
+        CI1[0]   = meanavg1[0] - CI_min
+        CI1[1]   = CI_max - meanavg1[0]
+    }
+    
+    #++++++++++++++++++++++++GENERAL FUNCTION+++++++++++++++++++++++++++#
+    function Mean(x1) {
+        sum2 = 0; j = 0
+        for(i in x1) {
+            sum2 += x1[i]
+            j++
+        }
+        return sum2/j
+    }
+    
+    function sort(x2) {
+        for(i = 0; i < length(x2); i++){
+            temp[i + 1] = x2[i]
+        }
+        asort(temp)
+        for(i = 1; i <= length(temp); i++){
+            x2[i - 1] = temp[i]
+        }
+    }
+    
+    function Std(x3) {
+        s2 = 0
+        mean = Mean(x3)
+        for(i = 0; i < length(x3); i++) {
+            s2 += (x3[i] - mean)^2
+        }
+        s2 = s2 / i
+        return s2^(1/2)
+    }
+    #++++++++++++++++++++++++++WRITE DATA+++++++++++++++++++++++++++++++#
+    function Summary_Output_File(AllComplex, outsum, outmeta) {
+        for(i = 0; i < AllComplex; i++) {
+            printf("\n\n#Complex Number: %4d\n", i+1) > outsum
+            printf("===============\n   SUMMARY   \n===============\n\n") >> outsum
+            printf("\n van der Waal energy      = %15.3lf   +/-  %7.3lf kJ/mol\n", Complex_SelfVdw[i, 0], Complex_SelfVdw[i, 1]) >> outsum
+            printf("\n Electrostattic energy    = %15.3lf   +/-  %7.3lf kJ/mol\n", Complex_SelfElec[i, 0], Complex_SelfElec[i, 1]) >> outsum
+            printf("\n Polar solvation energy   = %15.3lf   +/-  %7.3lf kJ/mol\n", Complex_SelfPol[i, 0], Complex_SelfPol[i, 1]) >> outsum
+            printf("\n SASA energy              = %15.3lf   +/-  %7.3lf kJ/mol\n", Complex_SelfSas[i, 0], Complex_SelfSas[i, 1]) >> outsum
+            printf("\n SAV energy               = %15.3lf   +/-  %7.3lf kJ/mol\n", Complex_SelfSav[i, 0], Complex_SelfSav[i, 1]) >> outsum
+            printf("\n WCA energy               = %15.3lf   +/-  %7.3lf kJ/mol\n", Complex_SelfWca[i, 0], Complex_SelfWca[i, 1]) >> outsum
+            printf("\n Binding energy           = %15.3lf   +/-  %7.3lf kJ/mol\n", Complex_FinalAvgEnergy[i, 0], Complex_StdErr[i, 0]) >> outsum
+            printf("\n===============\n    END     \n===============\n\n") >> outsum
+            
+            
+        }
+        if(AllComplex > 1) {
+            printf("# Complex_Number\tTotal_Binding_Energy\tError\n") > outmeta
+            for(i = 0; i < AllComplex; i++) {
+                printf("%5d %30.3f %10.3f\n", i+1, Complex_FinalAvgEnergy[i, 0], Complex_StdErr[i, 0]) >> outmeta
+            }
+        }
+    } 
+    #++++++++++++++++++++++++++CALCULATE ENERGY+++++++++++++++++++++++++#
+    function ComplexCalcEnergy(bootstrap, nbstep, mm, polar, apolor, frame_wise, idx, SelfVdw, SelfElec, SelfPol, \
+                               SelfSas, SelfSav, SelfWca, FinalAvgEnergy, StdErr) {
+        line  = ReadData(mm, 7, mmEn)
+        ReadData(polar, 4, polEn)
+        ReadData(apolor, 10, apolEn)
+        for(i = 0; i < line; i++) {
+            MM[i]     = mmEn[5, i] + mmEn[6, i] - ( mmEn[1, i] + mmEn[2, i] + \
+                        mmEn[3, i] + mmEn[4, i]) 
+            Vdw[i]    = mmEn[5, i] - (mmEn[1, i] + mmEn[3, i]) 
+            Elec[i]   = mmEn[6, i] - (mmEn[2, i] + mmEn[4, i])
+            Pol[i]    = polEn[3, i] - (polEn[1, i] + polEn[2, i])
+            Apol[i]   = apolEn[3, i] + apolEn[6, i] + apolEn[9, i] - \
+                        (apolEn[1, i] + apolEn[2, i] + apolEn[4, i] + \
+                        apolEn[5, i] + apolEn[7, i] + apolEn[8, i])
+            Sas[i]    = apolEn[3, i] - (apolEn[1, i] + apolEn[2, i])
+            Sav[i]    = apolEn[6, i] - (apolEn[4, i] + apolEn[5, i])
+            Wca[i]    = apolEn[9, i] - (apolEn[7, i] + apolEn[8, i])
+            Time[i]   = mmEn[0, i]
+            TotalEn[i]= MM[i] + Pol[i] + Apol[i]
+        }
+        
+        printf("\n#Complex %d\n", idx+1) >> frame_wise
+        for(i = 0; i < length(Time); i++) {
+            printf("%15.3lf %15.3lf %15.3lf %15.3lf %15.3lf " \
+                   "%15.3lf %15.3lf %15.3lf %15.3lf " \
+                   "%15.3lf %15.3lf %15.3lf %15.3lf " \
+                   "%15.3lf %15.3lf %15.3lf %15.3lf\n",
+                   Time[i], mmEn[1, i], mmEn[2, i], polEn[1, i], (apolEn[1, i] + apolEn[4, i] + apolEn[7, i]),
+                   mmEn[3, i], mmEn[4, i], polEn[2, i], (apolEn[2, i] + apolEn[5, i] + apolEn[8, i]),
+                   mmEn[5, i], mmEn[6, i], polEn[3, i], (apolEn[3, i] + apolEn[6, i] + apolEn[9, i]),
+                   MM[i], Pol[i], Apol[i], TotalEn[i]) >> frame_wise
+        }
+        #///////////////////////DO BootStrap\\\\\\\\\\\\\\\\\\\\\\\\\\\\#
+        if(bootstrap == 1) {
+            bsteps = nbstep
+            BootStrap(Vdw, bsteps, avg_energy, error)
+            SelfVdw[0]  = avg_energy[0]
+            SelfVdw[1]  = error[0]
+            BootStrap(Elec, bsteps, avg_energy1, error1)
+            SelfElec[0] = avg_energy1[0]
+            SelfElec[1] = error1[0]
+            BootStrap(Pol, bsteps, avg_energy2, error2)
+            SelfPol[0]  = avg_energy2[0]
+            SelfPol[1]  = error2[0]
+            BootStrap(Sas, bsteps, avg_energy3, error3)
+            SelfSas[0]  = avg_energy3[0]
+            SelfSas[1]  = error3[0]
+            BootStrap(Sav, bsteps, avg_energy4, error4)
+            SelfSav[0]  = avg_energy4[0]
+            SelfSav[1]  = error4[0]
+            BootStrap(Wca, bsteps, avg_energy5, error5)
+            SelfWca[0]  = avg_energy5[0]
+            SelfWca[1]  = error5[0]
+            ComplexBootStrap(TotalEn, bsteps, AvgEnBS, FinalAvgEnergy, StdErr, CI)
+        }
+        #//////////////////////Not BootStrap\\\\\\\\\\\\\\\\\\\\\\\\\\\\#
+        else {
+            SelfVdw[0]     = Mean(Vdw)
+            SelfVdw[1]     = Std(Vdw)
+            SelfElec[0]    = Mean(Elec)
+            SelfElec[1]    = Std(Elec)
+            SelfPol[0]     = Mean(Pol)
+            SelfPol[1]     = Std(Pol)
+            SelfSas[0]     = Mean(Sas)
+            SelfSas[1]     = Std(Sas)
+            SelfSav[0]     = Mean(Sav)
+            SelfSav[1]     = Std(Sav)
+            SelfWca[0]     = Mean(Wca)
+            SelfWca[1]     = Std(Wca)
+            FinalAvgEnergy[0] = Mean(TotalEn)
+            StdErr[0]      = Std(TotalEn)
+        }
+    }
+'

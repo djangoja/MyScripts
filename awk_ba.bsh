@@ -1,0 +1,79 @@
+#!/bin/bash
+# A simple MD code for studying an Ising-model like model of a binary alloy of copper and zinc atoms
+# Modified from David Fitzek and Fabian Mikulasch by liuyujie
+# Date 2019.11
+
+awk '
+    BEGIN {
+        E_cucu = -0.436; E_znzn = -0.113; E_cuzn = -0.294  # eV
+        k_b = 8.6173303e-05 # [eV/K]
+        N = 100; delta_T = 10; T_min = 0; T_max = 1000
+        T_len = int ((T_max - T_min)/delta_T)
+        delta_E = compute_delta_E()
+        E0 = compute_E0(N)
+        for (i = 0; i < T_len; i++) {
+            T[i] = i * delta_T  # 0k to 1000K
+            P[i] = find_min_energy(delta_E, T[i], N)
+            U[i] = compute_u(E0, delta_E, P[i], N)
+        }
+        
+        for (i = 1; i < T_len; i++) {
+            C[i] = compute_heat_capacity(U[i], U[i + 1], delta_T);
+        }
+        
+        write_vector("p.dat", P, T_len, delta_T, T_min)
+        write_vector("u.dat", U, T_len, delta_T, T_min)
+        write_vector("c.dat", C, T_len - 1, delta_T, T_min)
+
+        printf("Phase transition occurs at T_c = %.4fK \n", 2 * delta_E / k_b)
+    }
+    
+    function compute_f_prime(N, P, delta_E, T) {
+        f_prime = -4 * N * P * delta_E + N * T * k_b * (-log(1 - P) + log(1 + P))
+        return f_prime
+    }
+    
+    function compute_delta_E() {
+        delta_E = E_znzn + E_cucu - 2*E_cuzn
+        return delta_E
+    }
+    
+    function compute_E0(N) {
+        E0 = 2 * N * (E_cucu + E_znzn + 2 * E_cuzn)
+        return E0
+    }
+    
+    function find_min_energy(delta_E, T, N) {
+        counter = 0; P_upper = 1.0; P_lower = 0.0
+        while (P_upper - P_lower > 0.001 && counter < 20) {
+            counter++
+            f_upper = compute_f_prime(N, P_upper, delta_E, T)
+            P_temp = (P_upper + P_lower) / 2
+            f_new = compute_f_prime(N, P_temp, delta_E, T)
+    
+            if (f_upper * f_new <= 0) {
+                P_lower = P_temp
+            }
+            else {
+                P_upper = P_temp
+            }
+        }
+        return P_upper
+    }
+    
+    function write_vector(file_name, vec, n, dt, t0) {
+        for (i = 0; i < n; ++i) {
+            printf("%.10f %.10f\n", i * dt + t0, vec[i]) > file_name
+        }
+    }
+    
+    function compute_u(E0, delta_E, P, N) {
+        Uu = E0 - 2 * N * P * delta_E
+        return Uu
+    }
+    
+    function compute_heat_capacity(U1, U2, delta_T) {
+        C1 = (U2 - U1) / delta_T
+        return C1
+    }
+'
