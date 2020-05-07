@@ -1,0 +1,196 @@
+#!/bin/bash
+
+# A bash script for Converting dot distribution to probability distribution
+# Original program please see websit:
+# http://sobereva.com/73
+
+############################################################################
+#                     Author : Rewritten by Yujie Liu                      #
+#                        Email : 1051690424@qq.com                         #
+#                             Version : 1.0                                #
+#                           Date : 2020.04.05                              #
+############################################################################
+
+#=========================HELP INFORMATION==============================#
+Usage() {
+    echo "
+    Usage: $0 Options
+        -h    Show help information
+        -f    Input, gmx anaeig -2d result filename (default: 2d.xvg)
+        -nx   Value[int], Set number of grids in x axis (default: 100)
+        -ny   Value[int], Set number of grids in y axis (default: 100)
+        -t    Value[int], Which type of result you want: (default: 2)
+              '1' : select P
+              '2' : select -LnP
+              '3' : select P with gaussian broadening
+              '4' : select -LnP with gaussian broadening
+        -bs   Value[double], Input broadening scale (default: 1)
+        -p    Bool[y/n], whether output the points with P=0? (default: y)
+        -g    Bool[y/n], whether set Minimum value as G=0? (default: y)
+    "
+}
+#+++++++++++++++++++++++++++DEFAULT PARAMETERS+++++++++++++++++++++++++#
+inputfile="2d.xvg"
+nx=100
+ny=100
+t=2
+bs=1
+isp="y"
+isg="y"
+
+[[ $# -lt 1 ]] && { Usage; exit 1; }
+options=($@); N=${#options[@]}
+for((i = 0; i < N; i++));do
+    arg=${options[$i]}; j=$((i+1))
+    [[ $arg =~ -h ]] && { Usage; exit 2; }
+    [[ $arg =~ -f ]]  && { inputfile=${options[$j]}; }
+    [[ $arg =~ -nx ]]  && { nx=${options[$j]}; }
+    [[ $arg =~ -ny ]]  && { ny=${options[$j]}; }
+    [[ $arg =~ -t ]]  && { t=${options[$j]}; }
+    [[ $arg =~ -bs ]]  && { bs=${options[$j]}; }
+    [[ $arg =~ -p ]]  && { isp=${options[$j]}; }
+    [[ $arg =~ -g ]]  && { isg=${options[$j]}; }
+done
+
+awk '
+    BEGIN {
+        RS = "\r?\n"
+        line = 0; nx = "'$nx'" + 0; ny = "'$ny'" + 0; M_PI = 4*atan2(1, 1)
+        t = "'$t'" + 0; isp = "'$isp'"; isg = "'$isg'"; bs = "'$bs'"+0
+        minz = 1000; maxz = -1000; inputfile = "'$inputfile'"
+        result = "result.txt"; result2 = "result2.txt"; ipzero = 0
+        cmd = sprintf("rm -rf %s %s", result, result2); system(cmd)
+        Print_parameters()
+    }
+    /^[^#@]/ {
+        datax[line] = $1+0
+        datay[line] = $2+0
+        line++
+    }
+    
+    END {
+        minx = Min(datax)
+        maxx = Max(datax)
+        miny = Min(datay)
+        maxy = Max(datay)
+        print "\nTotal number of data is ", line
+        print "Minimum of x is ", minx", " "Maximum of x is ", maxx
+        print "Minimum of y is ", miny", " "Maximum of y is ", maxy
+        
+        spacex = (maxx - minx)/(nx - 1)
+        spacey = (maxy - miny)/(ny - 1)
+        print "\nSpace of x is ", spacex", " " Space of y is ", spacey
+        
+        if(t == 3 || t == 4) {
+            print "\nYou input broadening scale is ", bs
+        }
+        if(isp == "y" || isp == "Y") {
+            print "\nYou choosed output the points with P=0"
+            ipzero = 1
+        }
+        
+        area       = spacex * spacey
+        ioutnum    = 0
+        zeronlnP    = -log(1E-6)
+        critdissqr = (spacex^2 + spacey^2)*bs^2
+        FWHM       = sqrt(spacex^2 + spacey^2)*bs
+        gauss_c    = FWHM/2/sqrt(2*log(2))
+        gauss_norm = (1/(gauss_c*sqrt(2*M_PI)))^2
+        gauss_exp  = -1/(2*gauss_c^2)
+        for(ix = 1; ix <= nx; ix++) {
+            for(iy = 1; iy <= ny; iy++) {
+                flowx   = minx+(ix-1)*spacex
+                fhighx  = flowx+spacex
+                flowy   = miny+(iy-1)*spacey
+                fhighy  = flowy+spacey
+                fnowcenx= flowx+spacex/2
+                fnowceny= flowy+spacey/2
+                
+                # Number of point in this minival square area
+                tempnum = 0
+                if(t == 1 || t == 2) {
+                    for(i = 0; i < line; i++) {
+                        if(datax[i] >= flowx && datax[i] < fhighx && \
+                        datay[i] >= flowy && datay[i] < fhighy) {tempnum=tempnum+1}
+                    }
+                }
+                else if(t == 3 || t == 4) {
+                    for(i = 0; i < line; i++) {
+                        r2 = (datax[i]-fnowcenx)^2+(datay[i]-fnowceny)^2
+                        if(r2 > critdissqr) {continue}
+                        tempnum = tempnum+gauss_norm*exp(r2*gauss_exp)
+                    }
+                }
+                P = tempnum/line/area
+                if(tempnum == 0) {
+                    if(ipzero == 0) {continue}
+                    if(t == 1 || t == 3) {z = P}
+                    if(t == 2 || t == 4) {z = zeronlnP} # An arbituary setting
+                }
+                else {
+                    if(t == 1 || t == 3) {z = P}
+                    if(t == 2 || t == 4) {z = -log(P)}
+                }
+                
+                if(P != 0 && z > maxz) {maxz = z}
+                if(P != 0 && z < minz) {minz = z}
+                printf("%12.6f %12.6f %12.6f\n", fnowcenx,fnowceny,z) >> result
+                ioutnum++
+            }
+        }
+        close(result)
+        
+        print "Minimum value is ", minz
+        print "Maximum value is ", maxz
+        print "The number of points outputted is ", ioutnum
+        if((t == 2 || t == 4) && ipzero == 1) {printf("In result.txt, %12.6f means P=0 in this minival area\n", zeronlnP)}
+        print "Result have been saved to result.txt in current directory\n"
+        
+        if(t == 2 || t == 4) {
+            printf("You choosed %s set %12.6f as G=0\n", (isg == "y" ||\
+            isg == "Y")? "" : "NOT", minz)
+            if(isg == "y" || isg == "Y") {
+                while(getline < result > 0) {
+                    tmpx = $1+0; tmpy = $2+0; tmpz = $3+0;
+                    tmpz = tmpz-minz
+                    printf("%12.6f %12.6f %12.6f\n", tmpx, tmpy, tmpz) >> result2
+                }
+                close(result)
+                close(result2)
+                
+                print "Now minimum result is ", minz-minz
+                print "Now maximum result is ", maxz-minz
+                if(ipzero == 1) {printf("In result2.txt, %12.6f means P=0 in this minival area\n", zeronlnP-minz)}
+                print "\nAligned result have been saved to result2.txt in current directory"
+            }
+        }
+    }
+    
+    function Print_parameters() {
+        printf("\nYou are using follow parameters:\n")
+        printf("\t%-40s %-10s\n", "Input filename:", inputfile)
+        printf("\t%-40s %-10d\n", "Number of grids in x axis:", nx)
+        printf("\t%-40s %-10d\n", "Number of grids in y axis:", ny)
+        printf("\t%-40s %-10d\n", "Which type of result you want:", t)
+        printf("\t%-40s %-10.3f\n", "Input broadening scale:", bs)
+        printf("\t%-40s %-10s\n", "Whether output the points with P=0:", isp)
+        printf("\t%-40s %-10s\n", "Whether set Minimum value as G=0:", isg)
+    }
+    
+    function Max(x, _ARGVEND_, i, max) {
+        max = -999
+        for(i = 0; i < length(x); i++) {
+            max = max > x[i]? max : x[i]
+        }
+        return max
+    }
+    
+    function Min(x, _ARGVEND_, i, min) {
+        min = 999
+        for(i = 0; i < length(x); i++) {
+            min = min < x[i]? min : x[i]
+        }
+        return min
+    }
+' ${inputfile}
+
